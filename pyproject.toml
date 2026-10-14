@@ -1,0 +1,40 @@
+
+[project]
+name            = "nonoha-core"
+version         = "0.11.0-alpha.7"
+description     = "Core functionality for nonoha - a lightweight node-based data processing framework"
+readme          = "README.md"
+authors         = [{name = "VIE, Inc."}]
+license         = "Apache-2.0"
+license-files   = ["LICENSE", "NOTICE"]
+keywords        = ["dataflow", "node-graph", "signal-processing", "realtime", "numpy"]
+requires-python = ">=3.11"
+dependencies    = [
+  "numpy>=2.0",
+]
+
+[project.urls]
+Homepage   = "https://github.com/viestyle-dev/nonoha-core"
+Repository = "https://github.com/viestyle-dev/nonoha-core"
+Issues     = "https://github.com/viestyle-dev/nonoha-core/issues"
+
+
+[dependency-groups]
+dev = [
+  "pytest>=8.0",
+  "scipy>=1.14", # For testing purposes using compatibility test with scipy
+]
+benchmark = [
+  "pytest>=8.0",
+  "pytest-benchmark>=5.0",
+]
+
+[project.entry-points.pytest11]
+nonoha_core = "nonoha_core._testing"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
