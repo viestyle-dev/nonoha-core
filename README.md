@@ -134,6 +134,16 @@ your own tests (opt out with `-p no:nonoha_core`).
 - [Building Dataflow Applications](docs/building-dataflow-applications.md) — an end-to-end application guide
 - [Adding Node Properties](docs/adding-node-properties.md) — implementing configurable nodes
 
+## Versioning
+
+Follows [Semantic Versioning](https://semver.org/) from 1.0.0. Within a
+major version, the `node`, `port`, `data_type`, and `node_registry` APIs
+and the batch-array data model stay backward compatible; breaking changes
+are deprecated first and removed in the next major.
+
+Runtimes bundling this package (e.g. nonoha-engine) share its major
+version, so code written for 1.x runs on any 1.x runtime.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). First-time contributors sign the
