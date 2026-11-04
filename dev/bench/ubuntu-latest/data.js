@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793154993085,
+  "lastUpdate": 1793750936751,
   "repoUrl": "https://github.com/viestyle-dev/nonoha-core",
   "entries": {
     "nonoha-core Benchmark (ubuntu-latest)": [
@@ -150,6 +150,156 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 9.965789458786242e-7",
             "extra": "mean: 4.206753898561881 usec\nrounds: 126072"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "fivetwothreesix@gmail.com",
+            "name": "IOE",
+            "username": "ContentsViewer"
+          },
+          "committer": {
+            "email": "fivetwothreesix@gmail.com",
+            "name": "IOE",
+            "username": "ContentsViewer"
+          },
+          "distinct": true,
+          "id": "592bfd54de8fcfb64cbb0f7bcac705dc0304dbcf",
+          "message": "Release v1.0.0",
+          "timestamp": "2026-11-04T09:07:51+09:00",
+          "tree_id": "49687d99694fd826331f9758ce0d1e8a9e5c9890",
+          "url": "https://github.com/viestyle-dev/nonoha-core/commit/592bfd54de8fcfb64cbb0f7bcac705dc0304dbcf"
+        },
+        "date": 1793750936377,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benchmarks/test_endian_conversion.py::test_frombuffer_big_to_native",
+            "value": 26319.001989136425,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000004059319233306739",
+            "extra": "mean: 37.99536169391094 usec\nrounds: 28502"
+          },
+          {
+            "name": "benchmarks/test_endian_conversion.py::test_astype_native_to_big",
+            "value": 26927.193284124496,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0000031239786488683347",
+            "extra": "mean: 37.13717911289222 usec\nrounds: 29032"
+          },
+          {
+            "name": "benchmarks/test_endian_conversion.py::test_total_cost_convert_once",
+            "value": 2949.443983212774,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00001554396745537822",
+            "extra": "mean: 339.04695450792 usec\nrounds: 3605"
+          },
+          {
+            "name": "benchmarks/test_node_compute.py::test_add_node",
+            "value": 492782.2060421965,
+            "unit": "iter/sec",
+            "range": "stddev: 2.1112089487403264e-7",
+            "extra": "mean: 2.029294052704424 usec\nrounds: 51267"
+          },
+          {
+            "name": "benchmarks/test_node_compute.py::test_fft_node",
+            "value": 68871.17469901146,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0000026861383260251085",
+            "extra": "mean: 14.519862691036014 usec\nrounds: 72224"
+          },
+          {
+            "name": "benchmarks/test_node_compute.py::test_values_buffer_node",
+            "value": 100.09059821967085,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00027664453926244946",
+            "extra": "mean: 9.990948378640716 msec\nrounds: 103"
+          },
+          {
+            "name": "benchmarks/test_port_dispatch.py::test_dispatch_10_callbacks",
+            "value": 1086026.6181788386,
+            "unit": "iter/sec",
+            "range": "stddev: 1.1821348782129747e-7",
+            "extra": "mean: 920.7877442975795 nsec\nrounds: 113033"
+          },
+          {
+            "name": "benchmarks/test_port_dispatch.py::test_dispatch_100_callbacks",
+            "value": 270444.91942471784,
+            "unit": "iter/sec",
+            "range": "stddev: 5.034019992318949e-7",
+            "extra": "mean: 3.6976105971122304 usec\nrounds: 143001"
+          },
+          {
+            "name": "benchmarks/test_port_dispatch.py::test_dispatch_large_payload",
+            "value": 1090470.4149338722,
+            "unit": "iter/sec",
+            "range": "stddev: 1.1639220318901828e-7",
+            "extra": "mean: 917.0354246251213 nsec\nrounds: 113805"
+          },
+          {
+            "name": "benchmarks/test_port_dispatch.py::test_receive_value_with_index",
+            "value": 6348776.841800167,
+            "unit": "iter/sec",
+            "range": "stddev: 1.4685927201484978e-8",
+            "extra": "mean: 157.51065518884715 nsec\nrounds: 66103"
+          },
+          {
+            "name": "benchmarks/test_port_dispatch.py::test_dispatch_chain_10",
+            "value": 134859.82426021542,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0000011170451178615468",
+            "extra": "mean: 7.415106800602637 usec\nrounds: 141563"
+          },
+          {
+            "name": "benchmarks/test_port_subscribe.py::test_subscribe_1000",
+            "value": 250.30047790172415,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00008224761148368033",
+            "extra": "mean: 3.995198125001709 msec\nrounds: 256"
+          },
+          {
+            "name": "benchmarks/test_port_subscribe.py::test_unsubscribe_middle",
+            "value": 817.0949266800927,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00005120256047203074",
+            "extra": "mean: 1.2238480100018023 msec\nrounds: 100"
+          },
+          {
+            "name": "benchmarks/test_port_subscribe.py::test_subscribe_unsubscribe_cycle",
+            "value": 8161.974028440889,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000005600504094448389",
+            "extra": "mean: 122.51938030131436 usec\nrounds: 8559"
+          },
+          {
+            "name": "benchmarks/test_serialization.py::test_to_bytes_f32_small",
+            "value": 361438.4684711895,
+            "unit": "iter/sec",
+            "range": "stddev: 5.193575017974438e-7",
+            "extra": "mean: 2.766722657468627 usec\nrounds: 189394"
+          },
+          {
+            "name": "benchmarks/test_serialization.py::test_to_bytes_f32_large",
+            "value": 113559.41562321201,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000001767287032492971",
+            "extra": "mean: 8.805962891866061 usec\nrounds: 120701"
+          },
+          {
+            "name": "benchmarks/test_serialization.py::test_to_bytes_multi_value",
+            "value": 98035.12301217626,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0000016153161194957651",
+            "extra": "mean: 10.200425819589139 usec\nrounds: 102271"
+          },
+          {
+            "name": "benchmarks/test_serialization.py::test_to_bytes_string",
+            "value": 133411.4917564342,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0000014772796256170943",
+            "extra": "mean: 7.495606164315089 usec\nrounds: 139025"
           }
         ]
       }
