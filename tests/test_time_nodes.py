@@ -1,4 +1,5 @@
 from nonoha_core.nodes.time_nodes import (
+    ClockNode,
     SystemTimeNode,
     TickClockNode,
     TimeStringifyNode,
@@ -52,6 +53,48 @@ def test_time_stringify_node():
 
     assert isinstance(result, np.ndarray)
     assert result.shape == (3,)
+
+
+# ───────────────────────────────────────────────────────────────
+# ClockNode
+# ───────────────────────────────────────────────────────────────
+
+
+def _run_clock(fs: float, pack_size: int, seconds: float) -> list[tuple[np.ndarray, np.ndarray]]:
+    """(dispatched array, copy taken when it arrived) per pack."""
+    import asyncio
+
+    packs: list[tuple[np.ndarray, np.ndarray]] = []
+
+    async def run():
+        node = ClockNode("clock")
+        node.set_properties({"fs": fs, "pack_size": pack_size})
+        node.outputs["times"].subscribe(1, lambda values: packs.append((values[0], values[0].copy())))
+        node.inputs["enabled"].dispatch([np.array([True])])
+        await asyncio.sleep(seconds)
+        node.inputs["enabled"].dispatch([np.array([False])])
+        node.finalize()
+
+    asyncio.run(run())
+    return packs
+
+
+def test_clock_keeps_its_rate():
+    # 50 packs/s: a clock that slept 20 ms after each emit lost the timer
+    # rounding every period (about 32 packs/s with 15.6 ms timer ticks).
+    packs = _run_clock(fs=50.0, pack_size=1, seconds=2.0)
+    assert 92 <= len(packs) <= 102
+
+
+def test_clock_times_come_from_a_counter_in_one_buffer():
+    packs = _run_clock(fs=100.0, pack_size=4, seconds=0.5)
+    assert len(packs) >= 5
+    for k, (pack, at_arrival) in enumerate(packs):
+        assert pack.dtype == np.float32
+        np.testing.assert_array_equal(at_arrival, ((np.arange(4) + 4 * k) / 100.0).astype(np.float32))
+    # Values are valid during the dispatch (receivers copy what they keep):
+    # every pack is written into the same buffer, nothing is allocated per pack.
+    assert len({id(pack) for pack, _ in packs}) == 1
 
 
 # ───────────────────────────────────────────────────────────────

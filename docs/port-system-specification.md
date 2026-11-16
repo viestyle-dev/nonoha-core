@@ -76,6 +76,23 @@ graph LR
 - Single matrix `[[1,2],[3,4]]` becomes `[[[1,2],[3,4]]]` with shape `(1,2,2)`
 - Multiple matrices can be sent as batch: shape `(5,2,2)` for 5 matrices
 
+### Value Lifetime
+
+A dispatched value is valid during the dispatch only. The sender may reuse
+its output buffer for the next dispatch, so nothing is allocated per
+dispatch; a receiver copies what it keeps past its callback.
+
+```python
+# Sender: write into a buffer allocated once
+def _on_input(self, values):
+    np.multiply(values[0], self._gain, out=self._buffer)
+    self._output.dispatch([self._buffer])
+
+# Receiver: copy what outlives the callback
+def _on_input(self, values):
+    self._last = values[0].copy()
+```
+
 ## Batch Dimension Concept
 
 ### Understanding the Batch Dimension

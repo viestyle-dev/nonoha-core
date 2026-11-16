@@ -100,6 +100,9 @@ class Session:
     activity_next: float = 0.0
     activity_sent: dict[int, tuple] = field(default_factory=dict)
     activity_counts: dict[int, tuple[int, float]] = field(default_factory=dict)
+    # pid -> (dispatch count, values, stats, last): stats of values already
+    # summarized, reused until the port dispatches again.
+    activity_stats: dict[int, tuple[int, Any, Any, Any]] = field(default_factory=dict)
     activity_rounds: int = 0
     tokens: float = 0.0
     frame_seq: int = 0
@@ -238,6 +241,7 @@ class Inspector:
                 del session.activity[pid]
                 session.activity_sent.pop(pid, None)
                 session.activity_counts.pop(pid, None)
+                session.activity_stats.pop(pid, None)
         for pid, ref in wanted.items():
             if pid not in session.activity:
                 self._acquire(session.graph_ref, ref)
@@ -457,19 +461,26 @@ class Inspector:
             hz = (probe.count - prev_n) / elapsed if elapsed > 0 else 0.0
             session.activity_counts[pid] = (probe.count, now)
             dtype, shape, stats, last = None, None, None, None
-            if probe.values:
-                first = probe.values[0]
+            values = probe.values
+            if values:
+                first = values[0]
                 dtype = getattr(first, "dtype", None)
                 dtype = dtype.str.lstrip("<>|=") if dtype is not None else None
                 shape = list(getattr(first, "shape", ()))
-                stats, last = summarize(first, self.limits.stats_max_elements)
-            age = None if probe.last_t is None else round(now - probe.last_t, 3)
-            row = (pid, probe.count, round(hz, 2), age, dtype, shape, stats, last)
-            key = (row[1], row[4], tuple(row[5] or ()), not probe.attached)
+            key = (probe.count, dtype, tuple(shape or ()), not probe.attached)
             if not full and session.activity_sent.get(pid) == key:
-                continue
+                continue  # unchanged: no row, so no stats to compute
+            if values:
+                # Summarize each dispatch once, not on every full round.
+                cached = session.activity_stats.get(pid)
+                if cached is not None and cached[0] == probe.count and cached[1] is values:
+                    stats, last = cached[2], cached[3]
+                else:
+                    stats, last = summarize(values[0], self.limits.stats_max_elements)
+                    session.activity_stats[pid] = (probe.count, values, stats, last)
+            age = None if probe.last_t is None else round(now - probe.last_t, 3)
             session.activity_sent[pid] = key
-            rows.append(list(row))
+            rows.append([pid, probe.count, round(hz, 2), age, dtype, shape, stats, last])
         self._send(session, {"t": "activity", "ts": now, "paused": self.paused, "p": rows})
 
     def _send_samples(self, session: Session, now: float) -> None:

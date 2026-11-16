@@ -373,8 +373,14 @@ class ClockNode(BaseNode):
 
         self._fs = 600.0
         self._pack_size = 20
-        self._emit_interval_ms = 1000 / self._fs * self._pack_size
-        self._times = np.arange(self._pack_size, dtype=np.float32) / self._fs
+        # times = (sample index) / fs from an integer counter: no float drift.
+        # Each pack is computed into the same buffers (no allocation per
+        # pack): dispatched values are valid during the dispatch, and
+        # receivers copy what they keep.
+        self._index = 0  # Python int, unbounded
+        self._offsets = np.arange(self._pack_size, dtype=np.float64)
+        self._scratch = np.empty(self._pack_size, dtype=np.float64)
+        self._times = np.empty(self._pack_size, dtype=np.float32)
 
         input_enabled = StaticTypeInputPort("enabled", [PortValueType(DataType.Bool)])
         input_enabled.subscribe(id(self), self._on_input_enabled)
@@ -413,13 +419,15 @@ class ClockNode(BaseNode):
 
         need_restart_timer = False
         if fs != self._fs or pack_size != self._pack_size:
-            emit_interval_ms = 1000 / fs * pack_size
-            times = np.arange(pack_size, dtype=np.float32) / fs
+            if pack_size != self._pack_size:
+                self._offsets = np.arange(pack_size, dtype=np.float64)
+                self._scratch = np.empty(pack_size, dtype=np.float64)
+                self._times = np.empty(pack_size, dtype=np.float32)
 
+            # As before, a new rate or pack size starts the times from 0.
+            self._index = 0
             self._fs = fs
             self._pack_size = pack_size
-            self._emit_interval_ms = emit_interval_ms
-            self._times = times
             need_restart_timer = True
 
         self.properties["fs"] = self._fs
@@ -438,7 +446,7 @@ class ClockNode(BaseNode):
             self._timer_task = asyncio.create_task(self._emit_times())
 
     def _on_input_reset(self, values: list[PortValue]):
-        self._times = np.arange(self._pack_size, dtype=np.float32) / self._fs
+        self._index = 0
         # Restart timer to apply the reset immediately
         self._restart_timer_if_running()
 
@@ -456,11 +464,32 @@ class ClockNode(BaseNode):
                 self._timer_task = None
 
     async def _emit_times(self):
+        # Wait for absolute deadlines (start + k * interval), not for an
+        # interval after each emit: sleeping a fixed interval adds the
+        # timer's rounding and the dispatch time to every period, so the
+        # clock ran slow (15 Hz came out near 14.5 Hz).
+        loop = asyncio.get_running_loop()
+        fs, pack_size = self._fs, self._pack_size
+        offsets, scratch, times = self._offsets, self._scratch, self._times
+        interval = pack_size / fs
+        deadline = loop.time()
         try:
             while True:
-                await asyncio.sleep(self._emit_interval_ms / 1000.0)
-                self._output_times.dispatch([self._times])
-                self._times += self._pack_size / self._fs
+                deadline += interval
+                delay = deadline - loop.time()
+                if delay < -interval:
+                    # Stalled for more than a period: start over from now
+                    # instead of emitting the missed packs in a burst.
+                    deadline = loop.time()
+                    delay = 0.0
+                await asyncio.sleep(max(0.0, delay))
+
+                # (index + offsets) / fs in float64, written as float32 into
+                # the output buffer: two ufunc calls, no allocation.
+                np.add(offsets, self._index, out=scratch)
+                np.divide(scratch, fs, out=times, casting="same_kind")
+                self._index += pack_size
+                self._output_times.dispatch([times])
 
                 if self.parent_graph is not None:
                     self.parent_graph.flush_outputs()
