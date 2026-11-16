@@ -90,11 +90,34 @@ def test_clock_times_come_from_a_counter_in_one_buffer():
     packs = _run_clock(fs=100.0, pack_size=4, seconds=0.5)
     assert len(packs) >= 5
     for k, (pack, at_arrival) in enumerate(packs):
-        assert pack.dtype == np.float32
-        np.testing.assert_array_equal(at_arrival, ((np.arange(4) + 4 * k) / 100.0).astype(np.float32))
+        assert pack.dtype == np.float64
+        np.testing.assert_array_equal(at_arrival, (np.arange(4) + 4 * k) / 100.0)
     # Values are valid during the dispatch (receivers copy what they keep):
     # every pack is written into the same buffer, nothing is allocated per pack.
     assert len({id(pack) for pack, _ in packs}) == 1
+
+
+def test_clock_times_stay_finer_than_a_sample_after_a_day_at_192_khz():
+    # float32 times stop telling neighbouring samples apart after about a
+    # minute at 192 kHz; float64 keeps them about 1e-6 of a sample apart.
+    import asyncio
+
+    fs, pack_size = 192_000.0, 1920
+    packs: list[np.ndarray] = []
+
+    async def run():
+        node = ClockNode("clock")
+        node.set_properties({"fs": fs, "pack_size": pack_size})
+        node._index = int(fs) * 86_400  # one day of samples
+        node.outputs["times"].subscribe(1, lambda values: packs.append(values[0].copy()))
+        node.inputs["enabled"].dispatch([np.array([True])])
+        await asyncio.sleep(0.05)
+        node.finalize()
+
+    asyncio.run(run())
+    times = packs[0]
+    assert times[0] == pytest.approx(86_400.0)
+    np.testing.assert_allclose(np.diff(times), 1.0 / fs, rtol=1e-5)
 
 
 # ───────────────────────────────────────────────────────────────

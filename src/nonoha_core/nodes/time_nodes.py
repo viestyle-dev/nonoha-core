@@ -351,8 +351,11 @@ class ClockNode(BaseNode):
         return NodeDoc(
             description="Generate periodic time values at a configurable sample rate",
             category="Time",
-            inputs={"enabled": "", "reset": ""},
-            outputs={"times": ""},
+            inputs={
+                "enabled": "True starts emitting, false stops (the clock does not start by itself)",
+                "reset": "Any value: restart the times from 0",
+            },
+            outputs={"times": "Sample times in seconds (f64), pack_size values per dispatch"},
         )
 
     PROPERTIES = {
@@ -374,13 +377,14 @@ class ClockNode(BaseNode):
         self._fs = 600.0
         self._pack_size = 20
         # times = (sample index) / fs from an integer counter: no float drift.
-        # Each pack is computed into the same buffers (no allocation per
-        # pack): dispatched values are valid during the dispatch, and
-        # receivers copy what they keep.
+        # f64: a float32 time is coarser than a sample after hours at 600 Hz
+        # (about a minute at 192 kHz); float64 stays finer than 1% of a sample
+        # for years. Each pack is computed into the same buffer (no
+        # allocation per pack): dispatched values are valid during the
+        # dispatch, and receivers copy what they keep.
         self._index = 0  # Python int, unbounded
         self._offsets = np.arange(self._pack_size, dtype=np.float64)
-        self._scratch = np.empty(self._pack_size, dtype=np.float64)
-        self._times = np.empty(self._pack_size, dtype=np.float32)
+        self._times = np.empty(self._pack_size, dtype=np.float64)
 
         input_enabled = StaticTypeInputPort("enabled", [PortValueType(DataType.Bool)])
         input_enabled.subscribe(id(self), self._on_input_enabled)
@@ -388,7 +392,7 @@ class ClockNode(BaseNode):
         input_reset = StaticTypeInputPort("reset", [PortValueType(DataType.Any)])
         input_reset.subscribe(id(self), self._on_input_reset)
 
-        output_times = StaticTypeOutputPort("times", [PortValueType(DataType.Float32)])
+        output_times = StaticTypeOutputPort("times", [PortValueType(DataType.Float64)])
 
         self._output_times = output_times
 
@@ -421,8 +425,7 @@ class ClockNode(BaseNode):
         if fs != self._fs or pack_size != self._pack_size:
             if pack_size != self._pack_size:
                 self._offsets = np.arange(pack_size, dtype=np.float64)
-                self._scratch = np.empty(pack_size, dtype=np.float64)
-                self._times = np.empty(pack_size, dtype=np.float32)
+                self._times = np.empty(pack_size, dtype=np.float64)
 
             # As before, a new rate or pack size starts the times from 0.
             self._index = 0
@@ -470,7 +473,7 @@ class ClockNode(BaseNode):
         # clock ran slow (15 Hz came out near 14.5 Hz).
         loop = asyncio.get_running_loop()
         fs, pack_size = self._fs, self._pack_size
-        offsets, scratch, times = self._offsets, self._scratch, self._times
+        offsets, times = self._offsets, self._times
         interval = pack_size / fs
         deadline = loop.time()
         try:
@@ -484,10 +487,9 @@ class ClockNode(BaseNode):
                     delay = 0.0
                 await asyncio.sleep(max(0.0, delay))
 
-                # (index + offsets) / fs in float64, written as float32 into
-                # the output buffer: two ufunc calls, no allocation.
-                np.add(offsets, self._index, out=scratch)
-                np.divide(scratch, fs, out=times, casting="same_kind")
+                # (index + offsets) / fs in place: two ufunc calls, no allocation.
+                np.add(offsets, self._index, out=times)
+                np.divide(times, fs, out=times)
                 self._index += pack_size
                 self._output_times.dispatch([times])
 
