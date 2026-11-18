@@ -136,6 +136,23 @@ def test_fm_integral_restarts_when_the_time_goes_back():
     np.testing.assert_allclose(again, first, atol=1e-6)
 
 
+@pytest.mark.parametrize("bad", ["per sample", "one value"])
+def test_one_nan_fm_block_does_not_poison_the_rest(bad):
+    times = np.arange(100) / 100.0
+    node, out = make()
+    if bad == "per sample":
+        fm = np.zeros(100)
+        fm[50] = np.nan
+        node.inputs["fm"].dispatch([fm])
+    else:
+        node.inputs["fm"].dispatch([np.array([np.inf])])
+    with np.errstate(invalid="ignore"):
+        run(node, out, times)  # this block is lost
+    node.inputs["fm"].dispatch([np.array([0.0])])
+    later = run(node, out, times + 1.0)
+    assert np.isfinite(later).all()
+
+
 @pytest.mark.parametrize("fm", [None, "per sample", "one value"])
 def test_blocks_join_without_a_seam(fm):
     times = np.arange(600) / 600.0

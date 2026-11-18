@@ -30,7 +30,9 @@ def encode_sample(
     dispatch_count: int,
     t: float,
     reduced: Reduced,
-) -> bytes:
+) -> bytearray:
+    # Returned as the bytearray it is built in: converting it to bytes would
+    # copy the whole frame once more (WebSocket sends take any bytes-like)
     out = bytearray(
         _HEADER.pack(
             FRAME_SAMPLE,
@@ -45,13 +47,13 @@ def encode_sample(
         )
     )
     for step in reduced.steps:
-        out += bytes([len(step)])
+        out.append(len(step))
         out += struct.pack(f">{len(step)}H", *(min(s, 0xFFFF) for s in step))
     if reduced.flags & FLAG_TRUNCATED:
         out += b"\x00"
     else:
         port_values_to_bytes(reduced.values, reduced.types, out)
-    return bytes(out)
+    return out
 
 
 def decode_header(frame: bytes) -> dict:

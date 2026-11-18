@@ -39,9 +39,12 @@ MAX_VALUE_BYTES = 4096
 
 # Names that steer the process, child processes or libraries (code
 # execution, traffic interception), and the runtime's own settings. Writing
-# them from a client is refused even when a node declares them.
-_RESERVED_NAMES = frozenset({"PATH", "HOME", "TMP", "TEMP", "TMPDIR"})
-_RESERVED_PREFIXES = ("LD_", "DYLD_", "PYTHON", "SSL_", "NONOHA_")
+# them from a client is refused even when a node declares them. This list is
+# defence in depth, not the boundary: a client that may use the host's API
+# can already run code (Process and script nodes), so the boundary is the
+# host's request guard.
+_RESERVED_NAMES = frozenset({"PATH", "HOME", "TMP", "TEMP", "TMPDIR", "SSLKEYLOGFILE", "BASH_ENV", "ENV", "NODE_OPTIONS"})
+_RESERVED_PREFIXES = ("LD_", "DYLD_", "PYTHON", "SSL_", "OPENSSL_", "NONOHA_", "GIT_", "PIP_", "UV_")
 _RESERVED_SUFFIXES = ("_PROXY", "_CA_BUNDLE")
 
 

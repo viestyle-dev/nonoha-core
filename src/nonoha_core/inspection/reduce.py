@@ -114,13 +114,17 @@ def reduce_values(values: list[np.ndarray], spec: ReduceSpec) -> Reduced:
         array = np.asarray(value)
         shapes.append(tuple(int(d) for d in array.shape))
         array = _select_batch(array, spec.batch)
+        # True once the array is a new allocation (not the sender's memory)
+        owned = False
         if array.dtype.kind == "c":
             array = np.abs(array).astype(np.float32)
+            owned = True
             flags |= FLAG_CAST
         if spec.cast and array.dtype.kind in "biuf":
             np_type, _ = _CASTS[spec.cast]
             if array.dtype != np_type:
                 array = array.astype(np_type)
+                owned = True
                 flags |= FLAG_CAST
 
         if spec.slices:
@@ -143,7 +147,13 @@ def reduce_values(values: list[np.ndarray], spec: ReduceSpec) -> Reduced:
             array = array[tuple(index)]
             flags |= FLAG_REDUCED
 
-        out.append(np.ascontiguousarray(array))
+        # The result is the inspector's own: a sample is taken while the
+        # sender's buffer is valid (during the dispatch) and sent later. So
+        # what still points into the sender's memory is copied: only the
+        # reduced part, and not when it is too large to be sent anyway.
+        if not owned and nbytes_of(array) <= spec.max_bytes:
+            array = np.array(array, order="C", copy=True)
+        out.append(array)
         steps.append(tuple(step))
         vtype = effective_type(array)
         if vtype is None:
@@ -156,25 +166,37 @@ def reduce_values(values: list[np.ndarray], spec: ReduceSpec) -> Reduced:
 
 
 def summarize(array: np.ndarray, max_elements: int = 65536) -> tuple[list[float] | None, Any]:
-    """([min, max, mean] for numeric arrays, last scalar or None)."""
+    """([min, max, mean] for numeric arrays, last scalar or None).
+
+    Computed on the array itself (at most ``max_elements`` of it, strided):
+    no float64 copy and no mask unless a value is NaN or infinite.
+    """
     array = np.asarray(array)
-    last = None
     if array.size == 0:
         return None, None
-    if array.dtype.kind in "USOT":
-        flat = array.ravel()
-        return None, str(flat[-1])[:120]
-    if array.dtype.kind not in "biuf":
+    kind = array.dtype.kind
+    if kind in "USOT":
+        return None, str(array.ravel()[-1])[:120]
+    if kind not in "biuf":
         return None, None
+    # The last batch row, when it holds one element (0-d arrays included)
+    row = array[-1] if array.ndim else array
+    last = None
+    if row.size == 1:
+        last = float(row.item())
+        if not math.isfinite(last):
+            last = None
     flat = array.ravel()
     if flat.size > max_elements:
         flat = flat[:: math.ceil(flat.size / max_elements)]
+    low = float(flat.min())
+    high = float(flat.max())
+    if math.isfinite(low) and math.isfinite(high):
+        # NaN propagates into min and max, and infinities show there: both
+        # finite means every value is
+        return [low, high, float(flat.mean(dtype=np.float64))], last
     data = flat.astype(np.float64)
     finite = data[np.isfinite(data)]
-    if array.size == 1 or (array.ndim >= 1 and array[-1].size == 1):
-        last = float(np.asarray(array[-1]).ravel()[0])
-        if not math.isfinite(last):
-            last = None
     if finite.size == 0:
         return None, last
     return [float(finite.min()), float(finite.max()), float(finite.mean())], last

@@ -17,6 +17,7 @@ from nonoha_core.port import (
     StaticTypeOutputPort,
 )
 from nonoha_core.data_type import DataType, PortValueType, name_to_port_value_type
+from nonoha_core.error_log import ErrorLog
 
 
 logger = logging.getLogger(__name__)
@@ -383,6 +384,7 @@ class ClockNode(BaseNode):
         # allocation per pack): dispatched values are valid during the
         # dispatch, and receivers copy what they keep.
         self._index = 0  # Python int, unbounded
+        self._errors = ErrorLog(logger)
         self._offsets = np.arange(self._pack_size, dtype=np.float64)
         self._times = np.empty(self._pack_size, dtype=np.float64)
 
@@ -491,10 +493,17 @@ class ClockNode(BaseNode):
                 np.add(offsets, self._index, out=times)
                 np.divide(times, fs, out=times)
                 self._index += pack_size
-                self._output_times.dispatch([times])
-
+                # A failing downstream node must not stop the clock; what was
+                # dispatched before the failure is still flushed
+                try:
+                    self._output_times.dispatch([times])
+                except Exception:
+                    self._errors.exception(f"{self.name}: a node fed by the clock failed")
                 if self.parent_graph is not None:
-                    self.parent_graph.flush_outputs()
+                    try:
+                        self.parent_graph.flush_outputs()
+                    except Exception:
+                        self._errors.exception(f"{self.name}: flushing the graph's outputs failed")
         except asyncio.CancelledError:
             pass
 

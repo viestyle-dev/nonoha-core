@@ -79,6 +79,31 @@ def _run_clock(fs: float, pack_size: int, seconds: float) -> list[tuple[np.ndarr
     return packs
 
 
+def test_a_failing_node_does_not_stop_the_clock(caplog):
+    import asyncio
+
+    packs: list[int] = []
+
+    def failing(values):
+        packs.append(1)
+        raise ValueError("a broken node")
+
+    async def run():
+        node = ClockNode("clock")
+        node.set_properties({"fs": 600.0, "pack_size": 20})
+        node.outputs["times"].subscribe(1, failing)
+        node.inputs["enabled"].dispatch([np.array([True])])
+        await asyncio.sleep(0.3)
+        node.inputs["enabled"].dispatch([np.array([False])])
+        node.finalize()
+
+    with caplog.at_level("ERROR"):
+        asyncio.run(run())
+    assert len(packs) >= 5  # ~9 packs in 0.3 s: every one was emitted
+    tracebacks = [r for r in caplog.records if r.exc_info]
+    assert len(tracebacks) == 1  # the first failure in full, the rest counted
+
+
 def test_clock_keeps_its_rate():
     # 50 packs/s: a clock that slept 20 ms after each emit lost the timer
     # rounding every period (about 32 packs/s with 15.6 ms timer ticks).

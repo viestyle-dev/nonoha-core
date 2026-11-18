@@ -105,6 +105,13 @@ def test_writable_names(name):
         "SSL_CERT_FILE",
         "REQUESTS_CA_BUNDLE",
         "NONOHA_ANYTHING",
+        "SSLKEYLOGFILE",
+        "OPENSSL_CONF",
+        "BASH_ENV",
+        "NODE_OPTIONS",
+        "GIT_SSH_COMMAND",
+        "PIP_INDEX_URL",
+        "UV_INDEX_URL",
     ],
 )
 def test_reserved_or_malformed_names(name):

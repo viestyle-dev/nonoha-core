@@ -1,14 +1,25 @@
-"""Probes: shared, reference-counted subscribers on graph and node ports."""
+"""Probes: shared, reference-counted subscribers on graph and node ports.
+
+A dispatched value is valid during the dispatch only (the sender may write
+into the same buffer afterwards), so the inspector never keeps a reference
+to it: what it shows is taken during a dispatch. To keep that off the hot
+path, a probe takes nothing unless asked: the hub puts the watches and
+activity entries that need a sample in ``pending``, and the next dispatch
+fills them (a reduced copy for a watch, statistics for activity). Every
+other dispatch costs a counter increment and a truth test.
+"""
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
-from typing import Callable
+from typing import Any
 
 import numpy as np
 
 from ..node import BaseNodeGraph
 from ..port import PortValue, StaticTypePort
+from .reduce import reduce_values, summarize
 
 
 @dataclass(frozen=True)
@@ -40,36 +51,98 @@ class PortRef:
         return ports.get(self.port)
 
 
-class Accumulator:
-    """Keeps copies of every dispatch since the last sample, up to a byte cap."""
+def describe_values(values: list[PortValue] | None, max_elements: int) -> tuple[Any, Any, Any, Any]:
+    """(dtype, shape, stats, last) of a dispatch's first slot, for activity rows."""
+    if not values:
+        return None, None, None, None
+    first = values[0]
+    dtype = getattr(first, "dtype", None)
+    dtype = dtype.str.lstrip("<>|=") if dtype is not None else None
+    shape = list(getattr(first, "shape", ()))
+    stats, last = summarize(first, max_elements)
+    return dtype, shape, stats, last
 
-    __slots__ = ("chunks", "nbytes", "cap", "dropped")
+
+class Accumulator:
+    """The rows of every dispatch since the last sample, up to a byte cap.
+
+    Each slot has one ring allocated when the first dispatch (or a new shape
+    or dtype) arrives: a dispatch is copied into it, nothing is allocated,
+    and the oldest rows are overwritten. ``take`` returns the rows in order;
+    a ring that has not wrapped is returned as a view (the caller copies what
+    it keeps before the next dispatch).
+    """
+
+    __slots__ = ("cap", "rings", "starts", "lengths")
 
     def __init__(self, cap: int):
-        self.chunks: list[list[np.ndarray]] = []
-        self.nbytes = 0
         self.cap = cap
-        self.dropped = 0
+        self.rings: list[np.ndarray] | None = None
+        self.starts: list[int] = []
+        self.lengths: list[int] = []
 
-    def push(self, values: list[PortValue]):
-        copies = [np.array(v, copy=True) for v in values]
-        size = sum(int(c.nbytes) for c in copies)
-        self.chunks.append(copies)
-        self.nbytes += size
-        while self.nbytes > self.cap and len(self.chunks) > 1:
-            old = self.chunks.pop(0)
-            self.nbytes -= sum(int(c.nbytes) for c in old)
-            self.dropped += 1
+    def _reset(self, values: list[PortValue]) -> None:
+        # Cold path: first dispatch, or a slot changed shape or dtype. Every
+        # slot holds the same number of rows; together they fit the cap (a
+        # single dispatch larger than that still fits: the ring grows).
+        row_bytes = sum(int(np.prod(v.shape[1:], dtype=np.int64)) * v.dtype.itemsize for v in values) or 1
+        rows = max(1, self.cap // row_bytes, max((v.shape[0] for v in values), default=1))
+        self.rings = [np.empty((rows, *v.shape[1:]), dtype=v.dtype) for v in values]
+        self.starts = [0] * len(values)
+        self.lengths = [0] * len(values)
+
+    def push(self, values: list[PortValue]) -> None:
+        rings = self.rings
+        if rings is None or len(rings) != len(values):
+            self._reset(values)
+            rings = self.rings
+        starts, lengths = self.starts, self.lengths
+        for i in range(len(values)):
+            value = values[i]
+            ring = rings[i]
+            if value.dtype != ring.dtype or value.shape[1:] != ring.shape[1:]:
+                self._reset(values)
+                self.push(values)
+                return
+            rows = value.shape[0]
+            size = ring.shape[0]
+            if rows >= size:
+                if rows > size:
+                    self._reset(values)
+                    self.push(values)
+                    return
+                np.copyto(ring, value)
+                starts[i] = 0
+                lengths[i] = size
+                continue
+            pos = (starts[i] + lengths[i]) % size
+            first = size - pos
+            if rows <= first:
+                np.copyto(ring[pos:pos + rows], value)
+            else:
+                np.copyto(ring[pos:], value[:first])
+                np.copyto(ring[:rows - first], value[first:])
+            length = lengths[i] + rows
+            if length > size:
+                starts[i] = (starts[i] + length - size) % size
+                length = size
+            lengths[i] = length
 
     def take(self) -> list[np.ndarray] | None:
-        if not self.chunks:
+        rings = self.rings
+        if rings is None or not self.lengths or self.lengths[0] == 0:
             return None
-        chunks, self.chunks, self.nbytes = self.chunks, [], 0
-        slots = len(chunks[0])
-        try:
-            return [np.concatenate([c[i] for c in chunks], axis=0) for i in range(slots)]
-        except ValueError:  # shapes changed between dispatches
-            return chunks[-1]
+        out = []
+        for i in range(len(rings)):
+            ring, start, length = rings[i], self.starts[i], self.lengths[i]
+            end = start + length
+            if end <= ring.shape[0]:
+                out.append(ring[start:end])
+            else:
+                out.append(np.concatenate((ring[start:], ring[:end - ring.shape[0]])))
+            self.starts[i] = 0
+            self.lengths[i] = 0
+        return out
 
 
 class Probe:
@@ -77,30 +150,68 @@ class Probe:
 
     A probe is an ordinary subscriber (callback order is not part of the
     port contract; graphs that need an order use a Sequence node). Its
-    callback only records what it sees.
+    callback never raises: a failure is recorded on the entry it was taken
+    for and reported by the hub.
     """
 
-    __slots__ = ("ref", "port", "values", "count", "last_t", "seen_count", "refs", "accumulators", "_key")
+    __slots__ = ("ref", "port", "count", "last_t", "seen_count", "refs", "accumulators", "pending", "cpu", "_key")
 
-    def __init__(self, ref: PortRef, clock: Callable[[], float] | None = None):
+    def __init__(self, ref: PortRef):
         self.ref = ref
         self.port: StaticTypePort | None = None
-        self.values: list[PortValue] | None = None
         self.count = 0
         # Time of the last dispatch, stamped by the hub's tick (not per
-        # dispatch: the callback stays two attribute writes).
+        # dispatch: the callback stays cheap).
         self.last_t: float | None = None
         self.seen_count = 0
         self.refs = 0
         self.accumulators: list[Accumulator] = []
+        # Watches and activity entries waiting for the next dispatch
+        self.pending: list[Any] = []
+        # Seconds spent taking samples since the hub last collected it
+        self.cpu = 0.0
         self._key = id(self)
 
     def _on_values(self, values: list[PortValue]):
-        self.values = values
         self.count += 1
+        if self.pending:
+            t0 = time.perf_counter()
+            count = self.count
+            for entry in self.pending:
+                try:
+                    spec = entry.spec
+                    if spec is not None:  # a watch: its reduced, owned copy
+                        entry.captured = reduce_values(values, spec)
+                    else:  # an activity entry: statistics only
+                        entry.captured = describe_values(values, entry.max_elements)
+                    entry.captured_error = None
+                except Exception as e:
+                    entry.captured = None
+                    entry.captured_error = str(e)
+                entry.captured_count = count
+                entry.armed = False
+            self.pending.clear()
+            self.cpu += time.perf_counter() - t0
         if self.accumulators:
-            for acc in self.accumulators:
-                acc.push(values)
+            try:
+                for acc in self.accumulators:
+                    acc.push(values)
+            except Exception:
+                # A value an accumulator cannot hold (no batch dimension):
+                # start over rather than raise into the sender's dispatch
+                for acc in self.accumulators:
+                    acc.rings = None
+
+    def arm(self, entry: Any) -> None:
+        """Take a sample for ``entry`` at the next dispatch."""
+        if not entry.armed:
+            entry.armed = True
+            self.pending.append(entry)
+
+    def disarm(self, entry: Any) -> None:
+        if entry.armed:
+            entry.armed = False
+            self.pending = [e for e in self.pending if e is not entry]
 
     def stamp(self, now: float) -> None:
         """Called once per tick: date the newest dispatch at tick resolution."""
@@ -108,14 +219,14 @@ class Probe:
             self.seen_count = self.count
             self.last_t = now
 
-    def attach(self, port: StaticTypePort):
+    def attach(self, port: StaticTypePort) -> bool:
+        """Subscribe to ``port``; True when it is a different port than before."""
         if self.port is port:
-            return
+            return False
         self.detach()
         self.port = port
         port.subscribe(self._key, self._on_values)
-        if self.values is None and port.current_values is not None:
-            self.values = port.current_values
+        return True
 
     def detach(self):
         if self.port is not None:

@@ -275,11 +275,38 @@ def make_index_dispatch(
     )
 
 
+# How each numeric type travels: big-endian, C order (one byte per bool).
+# Built once: a dtype object and a Struct per dimension count, not a format
+# string per value.
+_WIRE_DTYPES: dict[DataType, np.dtype] = {
+    DataType.Bool: np.dtype(np.bool_),
+    DataType.Int8: np.dtype(">i1"),
+    DataType.Uint8: np.dtype(">u1"),
+    DataType.Int16: np.dtype(">i2"),
+    DataType.Uint16: np.dtype(">u2"),
+    DataType.Int32: np.dtype(">i4"),
+    DataType.Uint32: np.dtype(">u4"),
+    DataType.Int64: np.dtype(">i8"),
+    DataType.Uint64: np.dtype(">u8"),
+    DataType.Float32: np.dtype(">f4"),
+    DataType.Float64: np.dtype(">f8"),
+}
+_U32 = struct.Struct(">I")
+_SHAPE_STRUCTS = tuple(struct.Struct(f">{n}H") for n in range(8))
+
+
 def port_values_to_bytes(
     values: list[PortValue],
     value_type_list: list[PortValueType],
     byte_array: bytearray,
 ) -> bytearray:
+    """Append the encoding of ``values`` to ``byte_array`` (and return it).
+
+    Per value: data type, ndim, the non-batch shape (u16 each), the byte
+    length (u32) and the data (big-endian, C order). A numeric value is
+    converted at most once and appended straight from the array: no
+    intermediate ``bytes`` object.
+    """
     if len(values) < len(value_type_list):
         raise ValueError(
             f"Length of values ({len(values)}) is less than length of value_type_list ({len(value_type_list)})"
@@ -290,78 +317,31 @@ def port_values_to_bytes(
     for value, value_type in zip(values, value_type_list):
         data_type = value_type.data_type
 
-        byte_array += data_type.value.to_bytes(1, "big")
-        byte_array += value_type.ndim.to_bytes(1, "big")
-        byte_array += struct.pack(f">{len(value.shape) - 1}H", *value.shape[1:])
+        byte_array.append(data_type.value)
+        byte_array.append(value_type.ndim)
+        dims = value.shape[1:]
+        n = len(dims)
+        byte_array += (_SHAPE_STRUCTS[n] if n < 8 else struct.Struct(f">{n}H")).pack(*dims)
 
-        match data_type:
-            case DataType.Float32:
-                value_bytes = value.astype(">f4", copy=False).tobytes()  # type: ignore
-                byte_array += len(value_bytes).to_bytes(4, "big")
-                byte_array += value_bytes
-
-            case DataType.Float64:
-                value_bytes = value.astype(">f8", copy=False).tobytes()  # type: ignore
-                byte_array += len(value_bytes).to_bytes(4, "big")
-                byte_array += value_bytes
-
-            case DataType.Int8:
-                value_bytes = value.astype(">i1", copy=False).tobytes()  # type: ignore
-                byte_array += len(value_bytes).to_bytes(4, "big")
-                byte_array += value_bytes
-
-            case DataType.Uint8:
-                value_bytes = value.astype(">u1", copy=False).tobytes()  # type: ignore
-                byte_array += len(value_bytes).to_bytes(4, "big")
-                byte_array += value_bytes
-
-            case DataType.Bool:
-                value_bytes = value.astype("bool", copy=False).tobytes()  # type: ignore
-                byte_array += len(value_bytes).to_bytes(4, "big")
-                byte_array += value_bytes
-
-            case DataType.Int16:
-                value_bytes = value.astype(">i2", copy=False).tobytes()  # type: ignore
-                byte_array += len(value_bytes).to_bytes(4, "big")
-                byte_array += value_bytes
-
-            case DataType.Uint16:
-                value_bytes = value.astype(">u2", copy=False).tobytes()  # type: ignore
-                byte_array += len(value_bytes).to_bytes(4, "big")
-                byte_array += value_bytes
-
-            case DataType.Int32:
-                value_bytes = value.astype(">i4", copy=False).tobytes()  # type: ignore
-                byte_array += len(value_bytes).to_bytes(4, "big")
-                byte_array += value_bytes
-
-            case DataType.Uint32:
-                value_bytes = value.astype(">u4", copy=False).tobytes()  # type: ignore
-                byte_array += len(value_bytes).to_bytes(4, "big")
-                byte_array += value_bytes
-
-            case DataType.Int64:
-                value_bytes = value.astype(">i8", copy=False).tobytes()  # type: ignore
-                byte_array += len(value_bytes).to_bytes(4, "big")
-                byte_array += value_bytes
-
-            case DataType.Uint64:
-                value_bytes = value.astype(">u8", copy=False).tobytes()  # type: ignore
-                byte_array += len(value_bytes).to_bytes(4, "big")
-                byte_array += value_bytes
-
-            case DataType.String:
-                # Each string followed by NULL terminator: "A\0B\0" for ["A", "B"]
-                # Direct iteration works for both numpy arrays and lists
-                if len(value) == 0:
-                    byte_array += (0).to_bytes(4, "big")
-                else:
-                    string_bytes = "\0".join(value.ravel().tolist()).encode("utf-8")
-                    byte_array += (len(string_bytes) + 1).to_bytes(4, "big")
-                    byte_array += string_bytes
-                    byte_array += b"\0"
-
-            case _:
-                raise ValueError(f"Unsupported data type: {value_type}")
+        wire = _WIRE_DTYPES.get(data_type)
+        if wire is not None:
+            # No copy when the value already is big-endian and C-ordered
+            # (any one-byte type); otherwise one conversion
+            data = value.astype(wire, order="C", copy=False)
+            byte_array += _U32.pack(data.nbytes)
+            # extend() takes the array's buffer (one copy); += would be numpy's add
+            byte_array.extend(data)
+        elif data_type == DataType.String:
+            # Each string followed by NULL terminator: "A\0B\0" for ["A", "B"]
+            # Direct iteration works for both numpy arrays and lists
+            if len(value) == 0:
+                byte_array += (0).to_bytes(4, "big")
+            else:
+                string_bytes = "\0".join(value.ravel().tolist()).encode("utf-8")
+                byte_array += (len(string_bytes) + 1).to_bytes(4, "big")
+                byte_array += string_bytes
+                byte_array += b"\0"
+        else:
+            raise ValueError(f"Unsupported data type: {value_type}")
 
     return byte_array

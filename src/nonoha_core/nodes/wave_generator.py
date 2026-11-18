@@ -284,6 +284,10 @@ class WaveGeneratorNode(BaseNode):
         at_first = before + 0.5 * (self._last_fm + deviation) * (first_time - previous_time)
         self._fm_cycles = (at_first + deviation * (last_time - first_time)) % 1.0
         self._last_time, self._last_fm = last_time, deviation
+        if not (math.isfinite(self._fm_cycles) and math.isfinite(deviation)):
+            # A NaN or infinite fm would stay in the integral for good: this
+            # block is lost, the next one starts over
+            self._last_time, self._fm_cycles = None, 0.0
         return at_first - deviation * first_time
 
     def _add_fm_samples(self, times: np.ndarray, fm: np.ndarray, cycles: np.ndarray) -> float:
@@ -304,4 +308,8 @@ class WaveGeneratorNode(BaseNode):
         np.add(cycles, step, out=cycles)
         self._fm_cycles = (before + float(step[-1])) % 1.0
         self._last_time, self._last_fm = float(times[-1]), float(fm[-1])
+        if not (math.isfinite(self._fm_cycles) and math.isfinite(self._last_fm)):
+            # A NaN or infinite fm would stay in the integral for good: this
+            # block is lost, the next one starts over
+            self._last_time, self._fm_cycles = None, 0.0
         return before
