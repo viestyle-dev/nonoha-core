@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793751022356,
+  "lastUpdate": 1795012938724,
   "repoUrl": "https://github.com/viestyle-dev/nonoha-core",
   "entries": {
     "nonoha-core Benchmark (macos-latest)": [
@@ -300,6 +300,156 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.000007407058420187967",
             "extra": "mean: 6.838098248214248 usec\nrounds: 107147"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "fivetwothreesix@gmail.com",
+            "name": "IOE",
+            "username": "ContentsViewer"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bd7854e1e3d2b31947542bc9e037b6445ec9fea7",
+          "message": "Feature/inspector (#1)\n\n* feat: inspector\n\n* fix: update version to 1.1.0.dev0 in pyproject.toml\n\n* feat: add environment management and node documentation\n\n* improve performance\n\n* feat: enhance ClockNode and add WaveGeneratorNode with comprehensive tests\n\n* Enhance nonoha-core with various improvements and fixes\n\n- Refactor `reduce_values` in `reduce.py` to improve memory management and ensure proper handling of array ownership during reductions.\n- Introduce `ErrorLog` in `time_nodes.py` to capture and log errors without halting the clock node's operation.\n- Add checks for NaN and infinite values in `wave_generator.py` to prevent invalid states from persisting in the integral calculations.\n- Optimize byte serialization in `port.py` for numeric types, reducing unnecessary copies and improving performance.\n- Extend tests in `test_environment.py` to cover additional reserved environment variable names.\n- Implement new tests for `ErrorLog` functionality in `test_error_log.py`, ensuring proper logging behavior under error conditions.\n- Enhance `test_inspection.py` with scenarios to validate sample dispatching and buffer reuse in the inspector.\n- Add tests in `test_time_nodes.py` to verify that clock functionality remains intact despite downstream node failures.\n- Introduce tests in `test_wave_generator.py` to ensure that NaN values in frequency modulation do not affect subsequent calculations.\n- Update version in `uv.lock` to 1.1.0.dev0 to reflect the latest changes and improvements.\n\n* Refactor port encoding and add comprehensive tests for inspection\n\n- Renamed internal constants for clarity: _WIRE_DTYPES to WIRE_DTYPES and _SHAPE_STRUCTS to SHAPE_STRUCTS.\n- Updated the `port_values_to_bytes` function to use the new constant names.\n- Introduced a new reference test suite in `inspection_reference.py` to ensure the encoding consistency of reduced values.\n- Enhanced existing tests in `test_inspection.py` to validate the behavior of the reduction process and added checks for flags.\n- Created a new test file `test_inspection_encoding.py` to verify that the encoded frames match expected byte sequences for various input cases.\n- Added tests for handling large data, dimensionality issues, and ensuring that owned values are not unnecessarily copied during processing.\n\n* Refactor probe and reduce modules for improved sample handling and memory management\n\n- Introduced state management for probe entries with IDLE, ASKED, and HELD states.\n- Replaced 'armed' flag with state management in the Probe class.\n- Enhanced the Accumulator class to track item sizes and calculate held bytes.\n- Refactored reduce_values function to utilize a new _Slot class for better organization of sample data.\n- Implemented common stride calculation for efficient memory usage in reduce_values.\n- Improved error handling for oversized samples with detailed reporting on dimensions and sizes.",
+          "timestamp": "2026-11-18T23:40:04+09:00",
+          "tree_id": "b2aed50f6cf892c2d90689f333df81f72a892f6c",
+          "url": "https://github.com/viestyle-dev/nonoha-core/commit/bd7854e1e3d2b31947542bc9e037b6445ec9fea7"
+        },
+        "date": 1795012937126,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benchmarks/test_endian_conversion.py::test_frombuffer_big_to_native",
+            "value": 67006.85619866592,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000027593940002482355",
+            "extra": "mean: 14.923845957421738 usec\nrounds: 127666"
+          },
+          {
+            "name": "benchmarks/test_endian_conversion.py::test_astype_native_to_big",
+            "value": 92472.81794915286,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000019360883161636102",
+            "extra": "mean: 10.813988609602665 usec\nrounds: 128354"
+          },
+          {
+            "name": "benchmarks/test_endian_conversion.py::test_total_cost_convert_once",
+            "value": 3444.952492882057,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0001557422769839076",
+            "extra": "mean: 290.27976497968984 usec\nrounds: 5157"
+          },
+          {
+            "name": "benchmarks/test_node_compute.py::test_add_node",
+            "value": 694787.9303472087,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0000013074038177003302",
+            "extra": "mean: 1.4392880997519353 usec\nrounds: 103897"
+          },
+          {
+            "name": "benchmarks/test_node_compute.py::test_fft_node",
+            "value": 86204.9466090409,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000018038465803813353",
+            "extra": "mean: 11.600262390222548 usec\nrounds: 120599"
+          },
+          {
+            "name": "benchmarks/test_node_compute.py::test_values_buffer_node",
+            "value": 177.50121611467614,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0015101040868595321",
+            "extra": "mean: 5.6337642180093095 msec\nrounds: 211"
+          },
+          {
+            "name": "benchmarks/test_port_dispatch.py::test_dispatch_10_callbacks",
+            "value": 1336217.5247415593,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000001734550635939938",
+            "extra": "mean: 748.3811441506115 nsec\nrounds: 172652"
+          },
+          {
+            "name": "benchmarks/test_port_dispatch.py::test_dispatch_100_callbacks",
+            "value": 311263.85484243726,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0000017550591969219853",
+            "extra": "mean: 3.2127083965666468 usec\nrounds: 183218"
+          },
+          {
+            "name": "benchmarks/test_port_dispatch.py::test_dispatch_large_payload",
+            "value": 1361057.6828061114,
+            "unit": "iter/sec",
+            "range": "stddev: 4.807377226980446e-7",
+            "extra": "mean: 734.7227179516448 nsec\nrounds: 172652"
+          },
+          {
+            "name": "benchmarks/test_port_dispatch.py::test_receive_value_with_index",
+            "value": 7879045.368585127,
+            "unit": "iter/sec",
+            "range": "stddev: 6.250293329197612e-8",
+            "extra": "mean: 126.91892903516369 nsec\nrounds: 91609"
+          },
+          {
+            "name": "benchmarks/test_port_dispatch.py::test_dispatch_chain_10",
+            "value": 196418.00220261313,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000021582902097152655",
+            "extra": "mean: 5.091183032034199 usec\nrounds: 112677"
+          },
+          {
+            "name": "benchmarks/test_port_subscribe.py::test_subscribe_1000",
+            "value": 213.39810370829878,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004177726523401131",
+            "extra": "mean: 4.68607725477699 msec\nrounds: 314"
+          },
+          {
+            "name": "benchmarks/test_port_subscribe.py::test_unsubscribe_middle",
+            "value": 663.6764547023091,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0005840313378488579",
+            "extra": "mean: 1.506758289999226 msec\nrounds: 100"
+          },
+          {
+            "name": "benchmarks/test_port_subscribe.py::test_subscribe_unsubscribe_cycle",
+            "value": 7602.711200598597,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00020829118685505288",
+            "extra": "mean: 131.53202503881315 usec\nrounds: 12221"
+          },
+          {
+            "name": "benchmarks/test_serialization.py::test_to_bytes_f32_small",
+            "value": 739494.2228332591,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000006151114352645664",
+            "extra": "mean: 1.3522756082781633 usec\nrounds: 94118"
+          },
+          {
+            "name": "benchmarks/test_serialization.py::test_to_bytes_f32_large",
+            "value": 191252.18340065068,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00005265321326792037",
+            "extra": "mean: 5.228698476634478 usec\nrounds: 166667"
+          },
+          {
+            "name": "benchmarks/test_serialization.py::test_to_bytes_multi_value",
+            "value": 208411.1722393038,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000019621742456830815",
+            "extra": "mean: 4.798207261421527 usec\nrounds: 146349"
+          },
+          {
+            "name": "benchmarks/test_serialization.py::test_to_bytes_string",
+            "value": 199178.51585484532,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0000036695929384690724",
+            "extra": "mean: 5.020621806062491 usec\nrounds: 121833"
           }
         ]
       }
