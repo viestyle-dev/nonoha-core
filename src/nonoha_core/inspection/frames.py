@@ -7,16 +7,17 @@ Layout (big-endian):
     per slot: n u8, step u16 * n |
     PortValues (the same encoding as graph endpoints use)
 
-When FLAG_TRUNCATED is set the PortValues part is a single zero byte (no
-values) and the client only learns shapes from ``watch_ack``/activity.
+A frame always carries values: a sample too large to send is reported as an
+``error`` message (code ``too_large``) instead. Flags: see
+:mod:`nonoha_core.inspection.reduce`.
 """
 
 from __future__ import annotations
 
 import struct
 
-from ..port import port_values_to_bytes
-from .reduce import FLAG_TRUNCATED, Reduced
+from ..port import SHAPE_STRUCTS, port_values_to_bytes
+from .reduce import Reduced
 
 FRAME_SAMPLE = 0x21
 FRAME_VERSION = 1
@@ -47,12 +48,10 @@ def encode_sample(
         )
     )
     for step in reduced.steps:
-        out.append(len(step))
-        out += struct.pack(f">{len(step)}H", *(min(s, 0xFFFF) for s in step))
-    if reduced.flags & FLAG_TRUNCATED:
-        out += b"\x00"
-    else:
-        port_values_to_bytes(reduced.values, reduced.types, out)
+        n = len(step)
+        out.append(n)
+        out += (SHAPE_STRUCTS[n] if n < 8 else struct.Struct(f">{n}H")).pack(*(s if s <= 0xFFFF else 0xFFFF for s in step))
+    port_values_to_bytes(reduced.values, reduced.types, out)
     return out
 
 

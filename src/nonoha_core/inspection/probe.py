@@ -5,21 +5,25 @@ into the same buffer afterwards), so the inspector never keeps a reference
 to it: what it shows is taken during a dispatch. To keep that off the hot
 path, a probe takes nothing unless asked: the hub puts the watches and
 activity entries that need a sample in ``pending``, and the next dispatch
-fills them (a reduced copy for a watch, statistics for activity). Every
-other dispatch costs a counter increment and a truth test.
+fills and dates them (a reduced copy for a watch, statistics for activity).
+Every other dispatch costs a counter increment and a truth test.
+
+Nodes dispatch on the event loop's thread (other threads hand values over
+with ``call_soon_threadsafe``), the thread the hub's timer runs on: a probe
+and the hub never run at the same time.
 """
 
 from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 
 from ..node import BaseNodeGraph
 from ..port import PortValue, StaticTypePort
-from .reduce import reduce_values, summarize
+from .reduce import reduce_values, summarize, type_name_of
 
 
 @dataclass(frozen=True)
@@ -52,53 +56,78 @@ class PortRef:
 
 
 def describe_values(values: list[PortValue] | None, max_elements: int) -> tuple[Any, Any, Any, Any]:
-    """(dtype, shape, stats, last) of a dispatch's first slot, for activity rows."""
+    """(type name, shape, stats, last) of a dispatch's first slot, for activity
+    rows. The type name is the one ports use ("f32", "str"), as in watch_ack."""
     if not values:
         return None, None, None, None
-    first = values[0]
-    dtype = getattr(first, "dtype", None)
-    dtype = dtype.str.lstrip("<>|=") if dtype is not None else None
-    shape = list(getattr(first, "shape", ()))
+    first = np.asarray(values[0])
     stats, last = summarize(first, max_elements)
-    return dtype, shape, stats, last
+    return type_name_of(first), list(first.shape), stats, last
 
 
 class Accumulator:
-    """The rows of every dispatch since the last sample, up to a byte cap.
+    """The items of every dispatch since the last sample, up to a byte cap.
 
-    Each slot has one ring allocated when the first dispatch (or a new shape
-    or dtype) arrives: a dispatch is copied into it, nothing is allocated,
-    and the oldest rows are overwritten. ``take`` returns the rows in order;
-    a ring that has not wrapped is returned as a view (the caller copies what
-    it keeps before the next dispatch).
+    Each slot has one ring, allocated when the first dispatch (or a new shape
+    or dtype) arrives. A dispatch is copied into it, sliced first when the
+    watch slices (the ring holds what will be sent, so the cap counts that);
+    nothing is allocated, and the oldest items are overwritten. ``take``
+    returns the items in order; a ring that has not wrapped is returned as a
+    view (the hub encodes it before the next dispatch). ``gap`` is set when
+    items were lost (overwritten, or dropped by a reset).
     """
 
-    __slots__ = ("cap", "rings", "starts", "lengths")
+    __slots__ = ("cap", "slices", "indexes", "rings", "starts", "lengths", "gap")
 
-    def __init__(self, cap: int):
+    def __init__(self, cap: int, slices: list | None = None):
         self.cap = cap
+        self.slices = slices or None
+        self.indexes: list[tuple] | None = None  # per slot, when the watch slices
         self.rings: list[np.ndarray] | None = None
         self.starts: list[int] = []
         self.lengths: list[int] = []
+        self.gap = False
 
     def _reset(self, values: list[PortValue]) -> None:
         # Cold path: first dispatch, or a slot changed shape or dtype. Every
-        # slot holds the same number of rows; together they fit the cap (a
+        # slot holds the same number of items; together they fit the cap (a
         # single dispatch larger than that still fits: the ring grows).
-        row_bytes = sum(int(np.prod(v.shape[1:], dtype=np.int64)) * v.dtype.itemsize for v in values) or 1
-        rows = max(1, self.cap // row_bytes, max((v.shape[0] for v in values), default=1))
-        self.rings = [np.empty((rows, *v.shape[1:]), dtype=v.dtype) for v in values]
-        self.starts = [0] * len(values)
-        self.lengths = [0] * len(values)
+        if any(self.lengths):
+            self.gap = True
+        slices = self.slices
+        indexes = None
+        held = []
+        if slices:
+            indexes = []
+            for v in values:
+                index: list[slice] = [slice(None)]
+                for dim in range(1, v.ndim):
+                    s = slices[dim - 1] if dim - 1 < len(slices) else None
+                    index.append(slice(*s) if s else slice(None))
+                indexes.append(tuple(index))
+                held.append(v[tuple(index)] if v.ndim else v.reshape(1))
+        else:
+            held = [v if v.ndim else v.reshape(1) for v in values]
+        self.indexes = indexes
+        row_bytes = sum(int(np.prod(v.shape[1:], dtype=np.int64)) * v.dtype.itemsize for v in held) or 1
+        rows = max(1, self.cap // row_bytes, max((v.shape[0] for v in held), default=1))
+        self.rings = [np.empty((rows, *v.shape[1:]), dtype=v.dtype) for v in held]
+        self.starts = [0] * len(held)
+        self.lengths = [0] * len(held)
 
     def push(self, values: list[PortValue]) -> None:
         rings = self.rings
         if rings is None or len(rings) != len(values):
             self._reset(values)
             rings = self.rings
+        indexes = self.indexes
         starts, lengths = self.starts, self.lengths
         for i in range(len(values)):
             value = values[i]
+            if not value.ndim:
+                value = value.reshape(1)  # one item
+            elif indexes is not None:
+                value = value[indexes[i]]
             ring = rings[i]
             if value.dtype != ring.dtype or value.shape[1:] != ring.shape[1:]:
                 self._reset(values)
@@ -112,6 +141,8 @@ class Accumulator:
                     self.push(values)
                     return
                 np.copyto(ring, value)
+                if lengths[i]:
+                    self.gap = True
                 starts[i] = 0
                 lengths[i] = size
                 continue
@@ -126,6 +157,7 @@ class Accumulator:
             if length > size:
                 starts[i] = (starts[i] + length - size) % size
                 length = size
+                self.gap = True
             lengths[i] = length
 
     def take(self) -> list[np.ndarray] | None:
@@ -144,6 +176,13 @@ class Accumulator:
             self.lengths[i] = 0
         return out
 
+    def clear(self) -> None:
+        """Forget the items held (a paused session); the next ones are a gap."""
+        for i in range(len(self.lengths)):
+            self.starts[i] = 0
+            self.lengths[i] = 0
+        self.gap = True
+
 
 class Probe:
     """Subscribes to one port; shared by every watch and activity entry on it.
@@ -154,9 +193,9 @@ class Probe:
     for and reported by the hub.
     """
 
-    __slots__ = ("ref", "port", "count", "last_t", "seen_count", "refs", "accumulators", "pending", "cpu", "_key")
+    __slots__ = ("ref", "port", "count", "last_t", "seen_count", "refs", "accumulators", "pending", "cpu", "clock", "_key")
 
-    def __init__(self, ref: PortRef):
+    def __init__(self, ref: PortRef, clock: Callable[[], float] = time.monotonic):
         self.ref = ref
         self.port: StaticTypePort | None = None
         self.count = 0
@@ -170,6 +209,8 @@ class Probe:
         self.pending: list[Any] = []
         # Seconds spent taking samples since the hub last collected it
         self.cpu = 0.0
+        # The hub's clock: when a sample was taken
+        self.clock = clock
         self._key = id(self)
 
     def _on_values(self, values: list[PortValue]):
@@ -177,6 +218,7 @@ class Probe:
         if self.pending:
             t0 = time.perf_counter()
             count = self.count
+            taken = self.clock()
             for entry in self.pending:
                 try:
                     spec = entry.spec
@@ -189,6 +231,7 @@ class Probe:
                     entry.captured = None
                     entry.captured_error = str(e)
                 entry.captured_count = count
+                entry.captured_t = taken
                 entry.armed = False
             self.pending.clear()
             self.cpu += time.perf_counter() - t0
@@ -197,13 +240,14 @@ class Probe:
                 for acc in self.accumulators:
                     acc.push(values)
             except Exception:
-                # A value an accumulator cannot hold (no batch dimension):
-                # start over rather than raise into the sender's dispatch
+                # A value an accumulator cannot hold: start over rather than
+                # raise into the sender's dispatch
                 for acc in self.accumulators:
                     acc.rings = None
 
     def arm(self, entry: Any) -> None:
-        """Take a sample for ``entry`` at the next dispatch."""
+        """Take a sample for ``entry`` at the next dispatch (cold paths; the
+        tick does the same inline)."""
         if not entry.armed:
             entry.armed = True
             self.pending.append(entry)
@@ -212,12 +256,6 @@ class Probe:
         if entry.armed:
             entry.armed = False
             self.pending = [e for e in self.pending if e is not entry]
-
-    def stamp(self, now: float) -> None:
-        """Called once per tick: date the newest dispatch at tick resolution."""
-        if self.count != self.seen_count:
-            self.seen_count = self.count
-            self.last_t = now
 
     def attach(self, port: StaticTypePort) -> bool:
         """Subscribe to ``port``; True when it is a different port than before."""

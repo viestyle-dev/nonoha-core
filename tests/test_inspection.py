@@ -15,7 +15,7 @@ from nonoha_core.inspection import (
     decode_header,
     reduce_values,
 )
-from nonoha_core.inspection.reduce import FLAG_REDUCED, FLAG_TRUNCATED, effective_type, summarize
+from nonoha_core.inspection.reduce import FLAG_GAP, FLAG_REDUCED, effective_type, summarize
 from nonoha_core.node import BaseNode, BaseNodeGraph, replace_node_output_port
 from nonoha_core.port import StaticTypeInputPort, StaticTypeOutputPort
 
@@ -33,7 +33,9 @@ def test_reduce_batch_slice_stride_cast():
     assert r.values[0].shape == (1, 100, 200, 3) and r.types[0].name == "u8[100x200x3]"
 
     r = reduce_values([frame], ReduceSpec(batch="all", auto_stride=[0, 1], max_bytes=8000))
-    assert r.values[0].shape[0] == 2 and r.values[0].nbytes <= 8000
+    # Two items do not fit: the newest is kept, and strided since it alone is too large
+    assert r.values[0].shape[0] == 1 and r.values[0].nbytes <= 8000
+    assert np.array_equal(r.values[0][0, 0, 0], frame[1, 0, 0])
     assert r.steps[0][0] == r.steps[0][1] > 1 and r.steps[0][2] == 1 and r.flags & FLAG_REDUCED
 
     r = reduce_values([frame], ReduceSpec(slices=[[10, 20], None, [0, 1]], max_bytes=10**9))
@@ -41,12 +43,12 @@ def test_reduce_batch_slice_stride_cast():
 
     floats = np.ones((1, 4), np.float64)
     r = reduce_values([floats], ReduceSpec(cast="f32", max_bytes=10**9))
-    assert r.values[0].dtype == np.float32 and r.types[0].data_type == DataType.Float32
+    assert r.values[0].dtype == np.dtype(">f4") and r.types[0].data_type == DataType.Float32  # in wire order
 
 
-def test_reduce_flags_truncation_and_odd_types():
+def test_reduce_too_large_and_odd_types():
     big = np.zeros((1, 5000), np.float32)
-    assert reduce_values([big], ReduceSpec(max_bytes=1024)).flags & FLAG_TRUNCATED
+    assert reduce_values([big], ReduceSpec(max_bytes=1024)).values is None
 
     cplx = np.array([[1 + 1j, 3 + 4j]], np.complex64)
     r = reduce_values([cplx], ReduceSpec(max_bytes=10**6))
@@ -104,6 +106,16 @@ def step(inspector, clock, seconds, dt=0.05):
         inspector.tick(clock.t)
 
 
+def lag_pause(inspector, clock):
+    """Two ticks 0.6 s late (two spikes > 500 ms within 5 s): the engine-wide pause."""
+    for _ in range(2):
+        inspector._scheduled = clock.t + 0.05
+        clock.t += 0.65
+        inspector.tick(clock.t)
+    inspector._scheduled = None
+    assert inspector.paused
+
+
 def test_nothing_observed_until_watched_and_released_after():
     graph, source, clock, inspector, session, sent = make()
     assert messages(sent, "hello") and not subscribed(source.out)
@@ -147,6 +159,7 @@ def test_a_sample_is_the_first_dispatch_after_it_is_due_and_credit_window():
         step(inspector, clock, 0.05)
     assert len(frames(sent)) == 2
     inspector.ack(session, decode_header(frames(sent)[-1])["frame_seq"])
+    step(inspector, clock, 0.05)  # nothing was taken while it could not be sent: asked now
     source.emit()
     step(inspector, clock, 0.05)
     assert len(frames(sent)) == 3
@@ -253,9 +266,10 @@ def test_activity_reports_rate_shape_and_stats():
         step(inspector, clock, 0.1)
     step(inspector, clock, 0.6)  # one more report after the last dispatch
     rows = [row for m in messages(sent, "activity") for row in m["p"]]
-    last = rows[-1]
-    assert last[0] == 7 and last[1] == 10 and last[4] == "f4" and last[5] == [1, 4]
-    assert last[6] == [2.0, 2.0, 2.0] and 4.0 <= last[2] <= 12.0
+    flowing = [row for row in rows if row[2] > 0][-1]
+    assert flowing[0] == 7 and flowing[1] == 10 and flowing[4] == "f32" and flowing[5] == [1, 4]
+    assert flowing[6] == [2.0, 2.0, 2.0] and 4.0 <= flowing[2] <= 12.0
+    assert rows[-1][1] == 10 and rows[-1][2] == 0.0  # and then it stopped
 
 
 def test_lag_pauses_detaches_and_resumes():
@@ -307,7 +321,7 @@ def test_operations_on_a_closed_session_are_ignored():
     inspector.handle(session, {"op": "close"})
     inspector.handle(session, {"op": "watch", "id": 1, "node": "Source_1", "port": "out"})
     inspector.handle(session, {"op": "activity", "ports": [{"id": 1, "node": "Source_1", "port": "out"}]})
-    assert not subscribed(source.out) and not inspector._probes
+    assert not subscribed(source.out) and not frames(sent)
 
 
 def test_huge_numbers_are_a_bad_request_not_a_crash():
@@ -379,27 +393,38 @@ def test_a_frame_larger_than_the_bucket_goes_out_on_credit():
     assert len(frames(sent)) == 1 and len(frames(sent)[0]) > 240_000
 
 
-def test_an_exhausted_budget_encodes_nothing():
-    from unittest import mock
+def payload_floats(frame):
+    """Every float32 of a one-slot sample frame (all its items)."""
+    header = decode_header(frame)
+    payload = bytes(frame[header["payload_offset"]:])
+    ndim = payload[2]
+    return np.frombuffer(payload, dtype=">f4", offset=3 + 2 * ndim + 4)
 
+
+def test_items_held_back_by_the_budget_arrive_in_a_later_sample():
     limits = Limits(budget_bps=1_000, total_budget_bps=1_000, credit_frames=100, credit_bytes=10**9)
     graph, source, clock, inspector, session, sent = make(limits)
     inspector.handle(session, {"op": "watch", "id": 1, "node": "Source_1", "port": "out",
                                "interval_ms": 50, "batch": "since", "max_bytes": 100_000})
     source.emit(n=10_000)
     step(inspector, clock, 0.05)  # 40 KB sent on credit: the bucket is far below zero
-    from nonoha_core.inspection import hub as hub_module
-    with mock.patch.object(hub_module, "encode_sample", wraps=hub_module.encode_sample) as encode:
-        for _ in range(5):
-            source.emit(n=10)
-            step(inspector, clock, 0.05)
-        assert encode.call_count == 0
-    # The rows accumulated meanwhile are kept, not dropped
-    assert inspector._probes[("g", next(iter(session.watches.values())).ref)].accumulators[0].lengths[0] == 5
+    inspector.ack(session, 1)
+    for i in range(5):
+        source.emit(n=10, value=float(i + 1))
+        step(inspector, clock, 0.05)
+    assert len(frames(sent)) == 1  # held back
+    for _ in range(45):  # the debt is paid back (a live client keeps its session)
+        step(inspector, clock, 1.0)
+        inspector.ack(session, len(frames(sent)))
+    later = frames(sent)[1:]
+    assert len(later) == 1 and not decode_header(later[0])["flags"] & FLAG_GAP
+    assert payload_floats(later[0]).reshape(5, 10)[:, 0].tolist() == [1.0, 2.0, 3.0, 4.0, 5.0]
 
 
-def test_a_client_that_never_acks_is_given_a_new_window():
-    graph, source, clock, inspector, session, sent = make()
+def test_a_client_that_never_acks_is_disconnected():
+    graph, source, clock, inspector, _, _ = make()
+    sent, closed = [], []
+    session = inspector.open_session("g", sent.append, lambda: closed.append(True))
     inspector.handle(session, {"op": "watch", "id": 1, "node": "Source_1", "port": "out", "interval_ms": 50})
     for _ in range(6):
         source.emit()
@@ -408,13 +433,15 @@ def test_a_client_that_never_acks_is_given_a_new_window():
     for _ in range(120):  # 6 s without an ack
         source.emit()
         step(inspector, clock, 0.05)
-    assert len(frames(sent)) > 2
+    # Its frames were never forgotten (no third frame); the session ended and told the host
+    assert len(frames(sent)) == 2 and session.closed and closed == [True]
+    assert not subscribed(source.out)
 
 
 def test_a_watch_made_while_paused_gets_its_types_and_no_false_gone():
     graph, source, clock, inspector, session, sent = make()
     inspector.handle(session, {"op": "activity", "ports": [{"id": 1, "node": "Source_1", "port": "out"}]})
-    inspector._pause(clock.t)
+    lag_pause(inspector, clock)
     inspector.handle(session, {"op": "watch", "id": 1, "node": "Source_1", "port": "out"})
     assert not messages(sent, "gone")
     assert messages(sent, "watch_ack")[-1]["types"] == ["f32[?]"]
@@ -453,7 +480,7 @@ def test_a_session_closed_while_reporting_does_not_hide_the_others():
 def test_resume_is_for_the_session_and_force_resume_for_the_engine():
     graph, source, clock, inspector, session, sent = make()
     inspector.handle(session, {"op": "watch", "id": 1, "node": "Source_1", "port": "out"})
-    inspector._pause(clock.t)
+    lag_pause(inspector, clock)
     scale = inspector.interval_scale
     inspector.handle(session, {"op": "pause"})
     inspector.handle(session, {"op": "resume"})  # a tab shown again
@@ -496,3 +523,183 @@ def test_accumulator_keeps_order_cap_and_shape_changes_without_allocating():
     peak = tracemalloc.get_traced_memory()[1]
     tracemalloc.stop()
     assert peak < 2048  # views only, no copies of the data
+
+
+# --- flow control and state (2026-11-18, second review) ------------------------------------
+
+def watch(inspector, session, **op):
+    inspector.handle(session, {"op": "watch", "id": 1, "node": "Source_1", "port": "out", **op})
+
+
+def run(inspector, session, clock, sent, seconds, emit, ack=True):
+    """Emit before every tick for ``seconds``, acknowledging every frame."""
+    for _ in range(int(round(seconds / 0.05))):
+        emit()
+        step(inspector, clock, 0.05)
+        if ack and frames(sent):
+            inspector.ack(session, decode_header(frames(sent)[-1])["frame_seq"])
+
+
+def test_a_watch_is_asked_a_tick_before_it_is_due():
+    graph, source, clock, inspector, session, sent = make()
+    watch(inspector, session, interval_ms=100)
+    run(inspector, session, clock, sent, 2.0, source.emit)
+    assert 19 <= len(frames(sent)) <= 21  # every 100 ms, not every 150 ms
+
+
+def test_the_sample_time_is_when_the_dispatch_was_taken():
+    graph, source, clock, inspector, session, sent = make()
+    watch(inspector, session, interval_ms=100)
+    clock.t = 0.0371
+    source.emit()  # the first dispatch: taken now
+    step(inspector, clock, 0.05)
+    assert decode_header(frames(sent)[0])["t"] == pytest.approx(0.0371)
+
+
+class TwoSources(BaseNodeGraph):
+    pass
+
+
+def test_a_small_watch_is_not_held_back_by_a_large_one():
+    limits = Limits(budget_bps=100_000, total_budget_bps=10**9, credit_frames=100, credit_bytes=10**9)
+    graph, source, clock, inspector, session, sent = make(limits)
+    small = Source("Small")
+    graph.add_node(small)
+    watch(inspector, session, interval_ms=50, max_bytes=100_000)  # ~90 KB frames: the budget allows one a second
+    inspector.handle(session, {"op": "watch", "id": 2, "node": "Small", "port": "out", "interval_ms": 100})
+
+    def emit():
+        source.emit(n=22_000)
+        small.emit()
+
+    run(inspector, session, clock, sent, 4.0, emit)
+    by_watch = [decode_header(f)["watch_id"] for f in frames(sent)]
+    assert by_watch.count(2) >= 36  # 10 Hz, as asked (it waited behind the large one before)
+    assert 3 <= by_watch.count(1) <= 6  # the large one at the budget's pace
+
+
+def test_the_status_does_not_flap_while_the_budget_paces_a_watch():
+    graph, source, clock, inspector, session, sent = make(Limits(budget_bps=200_000, total_budget_bps=10**9))
+    watch(inspector, session, interval_ms=66, max_bytes=200_000)
+    run(inspector, session, clock, sent, 10.0, lambda: source.emit(n=45_000))
+    states = [m["state"] for m in messages(sent, "status")]
+    changes = sum(1 for a, b in zip(states, states[1:]) if a != b)
+    assert "throttled" in states and changes <= 1  # it flapped ok/throttled 26 times in 10 s
+
+
+def test_a_value_is_not_taken_while_it_could_not_be_sent():
+    graph, source, clock, inspector, session, sent = make(Limits(credit_frames=1))
+    watch(inspector, session, interval_ms=50)
+    source.emit(value=1.0)
+    step(inspector, clock, 0.05)
+    for i in range(2, 11):  # no ack: the window is full, nothing is taken
+        source.emit(value=float(i))
+        step(inspector, clock, 0.05)
+    inspector.ack(session, 1)
+    step(inspector, clock, 0.05)  # asked again
+    source.emit(value=11.0)
+    step(inspector, clock, 0.05)
+    assert [sample_floats(f)[0] for f in frames(sent)] == [1.0, 11.0]  # not the stale 2.0
+
+
+def test_a_paused_session_takes_and_gathers_nothing():
+    import tracemalloc
+
+    graph, source, clock, inspector, session, sent = make()
+    watch(inspector, session, interval_ms=50, batch="since")
+    source.emit(value=1.0)
+    step(inspector, clock, 0.05)
+    inspector.handle(session, {"op": "pause"})
+    value = [np.ones((1, 4096), np.float32)]
+    tracemalloc.start()
+    for _ in range(50):
+        source.out.dispatch(value)
+    peak = tracemalloc.get_traced_memory()[1]
+    tracemalloc.stop()
+    assert peak < 4096  # not copied into the ring
+    inspector.handle(session, {"op": "resume"})
+    inspector.ack(session, 10)
+    source.emit(value=7.0)
+    step(inspector, clock, 0.05)
+    last = frames(sent)[-1]
+    assert decode_header(last)["flags"] & FLAG_GAP and payload_floats(last).tolist() == [7.0] * 4
+
+
+def test_changing_only_the_interval_keeps_the_gathered_items():
+    graph, source, clock, inspector, session, sent = make()
+    watch(inspector, session, interval_ms=1000, batch="since")
+    for i in range(3):
+        source.emit(value=float(i))
+    watch(inspector, session, interval_ms=50, batch="since")  # a faster subscriber joined
+    step(inspector, clock, 0.05)
+    assert payload_floats(frames(sent)[0]).reshape(3, 4)[:, 0].tolist() == [0.0, 1.0, 2.0]
+    assert len(messages(sent, "watch_ack")) == 1  # the same watch
+
+
+def test_lost_items_are_flagged():
+    graph, source, clock, inspector, session, sent = make()
+    watch(inspector, session, interval_ms=1000, batch="since", max_bytes=1024)  # a ring of 64 items of 4 floats
+    for _ in range(3):
+        source.out.dispatch([np.ones((40, 4), np.float32)])
+    step(inspector, clock, 0.05)
+    assert decode_header(frames(sent)[0])["flags"] & FLAG_GAP
+
+
+def test_too_large_is_said_once_and_again_after_a_sample_fitted():
+    graph, source, clock, inspector, session, sent = make()
+    watch(inspector, session, interval_ms=50, max_bytes=1024)
+    run(inspector, session, clock, sent, 0.5, lambda: source.emit(n=5000))
+    run(inspector, session, clock, sent, 0.2, lambda: source.emit(n=4))
+    run(inspector, session, clock, sent, 0.5, lambda: source.emit(n=5000))
+    too_large = [m for m in messages(sent, "error") if m["code"] == "too_large"]
+    assert len(too_large) == 2 and "max_bytes 1024" in too_large[0]["message"] and frames(sent)
+
+
+def test_a_watch_id_a_frame_cannot_carry_is_refused():
+    graph, source, clock, inspector, session, sent = make()
+    inspector.handle(session, {"op": "watch", "id": 70_000, "node": "Source_1", "port": "out"})
+    assert messages(sent, "error")[-1]["code"] == "bad_request" and not subscribed(source.out)
+
+
+def test_a_new_session_after_the_last_one_starts_fresh():
+    graph, source, clock, inspector, session, sent = make()
+    watch(inspector, session)
+    lag_pause(inspector, clock)
+    inspector.close_session(session)
+    other = inspector.open_session("g", [].append)
+    inspector.handle(other, {"op": "watch", "id": 1, "node": "Source_1", "port": "out"})
+    assert not inspector.paused and inspector.interval_scale == 1.0 and subscribed(source.out)
+
+
+def test_zero_dimensional_values_are_one_item():
+    # A port's values carry a batch axis; a 0-d one (a contract violation the
+    # test ports refuse) is still held as one item, not an error per dispatch
+    from nonoha_core.inspection.probe import Accumulator
+
+    acc = Accumulator(cap=64)
+    for v in (1.0, 2.0):
+        acc.push([np.array(v, np.float32)])
+    assert acc.take()[0].tolist() == [1.0, 2.0]
+
+
+def test_a_port_that_stops_shows_it_at_the_next_round():
+    graph, source, clock, inspector, session, sent = make()
+    inspector.handle(session, {"op": "activity", "interval_ms": 500,
+                               "ports": [{"id": 7, "node": "Source_1", "port": "out"}]})
+    run(inspector, session, clock, sent, 3.0, source.emit)
+    stopped_at = clock.t
+    step(inspector, clock, 1.2)
+    idle = [m["ts"] for m in messages(sent, "activity") for row in m["p"] if row[2] == 0.0 and m["ts"] > stopped_at]
+    assert idle and idle[0] - stopped_at <= 1.05  # within two rounds, not at the fifth
+
+
+def test_accumulator_slices_before_holding_and_flags_gaps():
+    from nonoha_core.inspection.probe import Accumulator
+
+    acc = Accumulator(cap=8 * 4, slices=[[0, 1]])  # 8 items of one float (of 64 channels)
+    acc.push([np.arange(4 * 64, dtype=np.float32).reshape(4, 64)])
+    held = acc.take()[0]
+    assert held.shape == (4, 1) and held[:, 0].tolist() == [0.0, 64.0, 128.0, 192.0] and not acc.gap
+    for _ in range(3):
+        acc.push([np.zeros((4, 64), np.float32)])  # 12 items into 8
+    assert acc.gap and acc.take()[0].shape == (8, 1)

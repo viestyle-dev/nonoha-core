@@ -277,8 +277,8 @@ def make_index_dispatch(
 
 # How each numeric type travels: big-endian, C order (one byte per bool).
 # Built once: a dtype object and a Struct per dimension count, not a format
-# string per value.
-_WIRE_DTYPES: dict[DataType, np.dtype] = {
+# string per value. The inspector copies samples straight into these dtypes.
+WIRE_DTYPES: dict[DataType, np.dtype] = {
     DataType.Bool: np.dtype(np.bool_),
     DataType.Int8: np.dtype(">i1"),
     DataType.Uint8: np.dtype(">u1"),
@@ -292,7 +292,7 @@ _WIRE_DTYPES: dict[DataType, np.dtype] = {
     DataType.Float64: np.dtype(">f8"),
 }
 _U32 = struct.Struct(">I")
-_SHAPE_STRUCTS = tuple(struct.Struct(f">{n}H") for n in range(8))
+SHAPE_STRUCTS = tuple(struct.Struct(f">{n}H") for n in range(8))  # n u16 dimensions
 
 
 def port_values_to_bytes(
@@ -321,9 +321,9 @@ def port_values_to_bytes(
         byte_array.append(value_type.ndim)
         dims = value.shape[1:]
         n = len(dims)
-        byte_array += (_SHAPE_STRUCTS[n] if n < 8 else struct.Struct(f">{n}H")).pack(*dims)
+        byte_array += (SHAPE_STRUCTS[n] if n < 8 else struct.Struct(f">{n}H")).pack(*dims)
 
-        wire = _WIRE_DTYPES.get(data_type)
+        wire = WIRE_DTYPES.get(data_type)
         if wire is not None:
             # No copy when the value already is big-endian and C-ordered
             # (any one-byte type); otherwise one conversion
