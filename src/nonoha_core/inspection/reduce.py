@@ -138,6 +138,57 @@ class Reduced:
     too_large: str | None = None
 
 
+class _Slot:
+    """One value of a sample while it is fitted: a view of the sender's array
+    (the items chosen, sliced), what it travels as, and its sizes. Nothing is
+    copied until the sample is known to fit. ``stridable`` is decided only
+    when the sample has to be strided (``_common_stride``)."""
+
+    __slots__ = ("array", "items", "data_type", "wire", "itemsize", "item_bytes", "stridable", "widest", "converted")
+
+    def __init__(self, value: np.ndarray, spec: ReduceSpec):
+        array = np.asarray(value)
+        batch = spec.batch
+        if array.ndim == 0:
+            array = array.reshape(1)
+        elif batch != "all":
+            array = array[-(1 if batch == "last" else batch):]
+        slices = spec.slices
+        if slices:
+            index: list[slice] = [slice(None)]
+            for dim in range(1, array.ndim):
+                s = slices[dim - 1] if dim - 1 < len(slices) else None
+                index.append(slice(*s) if s else slice(None))
+            array = array[tuple(index)]
+        self.array = array
+        self.items = array.shape[0]
+        self.widest = max(array.shape[1:], default=0)
+        self.converted = False
+        self.stridable: tuple[int, ...] = ()
+        kind = array.dtype.kind
+        if kind in "USOT":  # strings: copied as they are, never strided
+            self.data_type = DataType.String
+            self.wire = None
+            self.itemsize = 0
+            self.item_bytes = nbytes_of(array) / self.items if self.items else 0  # strings vary: their mean
+            return
+        if kind == "c":  # sent as magnitudes
+            data_type = _CASTS[spec.cast] if spec.cast else DataType.Float32
+            self.converted = True
+        else:
+            sendable = _SENDABLE.get(array.dtype)
+            if sendable is None:
+                raise ValueError(f"cannot send dtype {array.dtype}")
+            data_type = sendable[0]
+            if spec.cast and kind in "biuf" and _CASTS[spec.cast] is not data_type:
+                data_type = _CASTS[spec.cast]
+                self.converted = True
+        self.data_type = data_type
+        self.wire = WIRE_DTYPES[data_type]
+        self.itemsize = self.wire.itemsize
+        self.item_bytes = self.itemsize * math.prod(array.shape[1:])
+
+
 def reduce_values(values: list[np.ndarray], spec: ReduceSpec, owned: bool = False) -> Reduced:
     """Fit ``values`` to ``spec`` (see the module docstring).
 
@@ -145,178 +196,137 @@ def reduce_values(values: list[np.ndarray], spec: ReduceSpec, owned: bool = Fals
     anything can change them (an accumulator's items): they are not copied,
     and the encoder converts them.
     """
-    batch = spec.batch
-    slices = spec.slices
-    cast = spec.cast
     max_bytes = spec.max_bytes
-    flags = FLAG_BATCH_ALL if batch == "all" else 0
-
-    # Pass 1, views only. Per slot: [array, DataType, wire dtype (None: strings),
-    # items, bytes per item, bytes per element]
-    slots: list[list[Any]] = []
+    slots = [_Slot(value, spec) for value in values]
+    flags = FLAG_BATCH_ALL if spec.batch == "all" else 0
+    if spec.slices:
+        flags |= FLAG_REDUCED
     total = 0
     most = 0
-    wide = False
-    for value in values:
-        array = np.asarray(value)
-        if array.ndim == 0:
-            array = array.reshape(1)
-        elif batch != "all":
-            array = array[-(1 if batch == "last" else batch):]
-        if slices:
-            index: list[slice] = [slice(None)]
-            for dim in range(1, array.ndim):
-                s = slices[dim - 1] if dim - 1 < len(slices) else None
-                index.append(slice(*s) if s else slice(None))
-            array = array[tuple(index)]
-            flags |= FLAG_REDUCED
-        items = array.shape[0]
-        kind = array.dtype.kind
-        if kind in "USOT":
-            data_type = DataType.String
-            wire = None
-            itemsize = 0
-            item_bytes = nbytes_of(array) / items if items else 0  # strings vary: their mean
-        else:
-            if kind == "c":
-                data_type = _CASTS[cast] if cast else DataType.Float32  # magnitudes
-                flags |= FLAG_CAST
-            else:
-                sendable = _SENDABLE.get(array.dtype)
-                if sendable is None:
-                    raise ValueError(f"cannot send dtype {array.dtype}")
-                data_type = sendable[0]
-                if cast and kind in "biuf" and _CASTS[cast] is not data_type:
-                    data_type = _CASTS[cast]
-                    flags |= FLAG_CAST
-            wire = WIRE_DTYPES[data_type]
-            itemsize = wire.itemsize
-            item_bytes = itemsize * math.prod(array.shape[1:])
-        for d in array.shape[1:]:
-            if d > _DIM_MAX:
-                wide = True
-        slots.append([array, data_type, wire, items, item_bytes, itemsize])
-        total += items * item_bytes
-        if items > most:
-            most = items
+    widest = 0
+    for slot in slots:
+        total += slot.items * slot.item_bytes
+        most = max(most, slot.items)
+        widest = max(widest, slot.widest)
+        if slot.converted:
+            flags |= FLAG_CAST
 
-    # 1. too many items: keep the newest that fit
+    # 1. Too many items: the newest that fit, the same number in every slot
     if total > max_bytes and most > 1:
-        per_item = sum(slot[4] for slot in slots)
-        keep = max(1, int(max_bytes // per_item)) if per_item else most
-        if keep < most:
-            total = 0
-            for slot in slots:
-                if slot[3] > keep:
-                    slot[0] = slot[0][-keep:]
-                    slot[3] = keep
-                total += slot[3] * slot[4]
-            flags |= FLAG_REDUCED
-
-    # 2. still too large, or a dimension a frame cannot hold: one common stride
-    factor = 1
-    stridable: list[list[int]] = []
-    if total > max_bytes or wide:
-        kmax = 0
-        lo = 1
-        hi = 1
+        keep = max(1, int(max_bytes // sum(slot.item_bytes for slot in slots)))
+        total = 0
         for slot in slots:
-            array = slot[0]
-            dims = [] if slot[2] is None else [
-                d for d in spec.auto_stride if 0 <= d < array.ndim - 1 and array.shape[d + 1] > 1
-            ]
-            stridable.append(dims)
-            if len(dims) > kmax:
-                kmax = len(dims)
-            for d in dims:
-                size = array.shape[d + 1]
-                if size > hi:
-                    hi = size
-                if size > _DIM_MAX:
-                    lo = max(lo, -(-size // _DIM_MAX))
-        if total > max_bytes and kmax:
-            lo = max(lo, math.ceil((total / max_bytes) ** (1.0 / kmax)))
-        lo = min(lo, hi)
-        # The estimate is a lower bound and usually the answer: one check
-        size, widest = _strided_size(slots, stridable, lo) if kmax else (total, _DIM_MAX + 1)
-        if size > max_bytes or widest > _DIM_MAX:
-            size, widest = _strided_size(slots, stridable, hi) if kmax else (size, widest)
-            if not kmax or size > max_bytes or widest > _DIM_MAX:
-                # 3. nothing fits: say why, with the shapes as they were dispatched
-                shapes = " + ".join(
-                    f"{type_name_of(np.asarray(v)) or np.asarray(v).dtype}[{'x'.join(str(d) for d in np.shape(v))}]"
-                    for v in values
-                )
-                reason = (
-                    f"{shapes}: {int(total)} bytes, more than max_bytes {max_bytes} even reduced"
-                    if total > max_bytes
-                    else f"{shapes}: a dimension over 65535 that may not be strided"
-                )
-                return Reduced(None, [], [], flags, int(total), reason)
-            lo += 1
-            while lo < hi:  # the smallest stride that fits (sizes fall as it grows)
-                mid = (lo + hi) // 2
-                mid_size, mid_widest = _strided_size(slots, stridable, mid)
-                if mid_size <= max_bytes and mid_widest <= _DIM_MAX:
-                    hi, size = mid, mid_size
-                else:
-                    lo = mid + 1
-        factor = lo
+            if slot.items > keep:
+                slot.array = slot.array[-keep:]
+                slot.items = keep
+            total += slot.items * slot.item_bytes
+        flags |= FLAG_REDUCED
+
+    # 2. One item too large, or a dimension a frame cannot hold: one stride for every slot
+    factor = 1
+    if total > max_bytes or widest > _DIM_MAX:
+        factor, total = _common_stride(slots, spec.auto_stride, total, max_bytes)
+        if not factor:
+            return Reduced(None, [], [], flags, int(total), _too_large(values, total, max_bytes))
         if factor > 1:
-            total = size
             flags |= FLAG_REDUCED
 
-    # Pass 2: one copy per slot, the sample's own, in the wire's byte order
+    # 3. One copy per slot, the sample's own, straight into the wire's byte order
     out: list[np.ndarray] = []
     types: list[PortValueType] = []
     steps: list[tuple[int, ...]] = []
-    for i, slot in enumerate(slots):
-        array = slot[0]
+    for slot in slots:
+        array = slot.array
         step = [1] * (array.ndim - 1)
-        if factor > 1 and stridable[i]:
+        if factor > 1 and slot.stridable:
             index = [slice(None)] * array.ndim
-            for d in stridable[i]:
+            for d in slot.stridable:
                 index[d + 1] = slice(None, None, factor)
                 step[d] = factor
             array = array[tuple(index)]
-        wire = slot[2]
-        if wire is None:
+        if slot.wire is None:
             if not owned:
                 array = np.array(array, copy=True)
         elif array.dtype.kind == "c":
-            magnitude = np.empty(array.shape, wire)
+            magnitude = np.empty(array.shape, slot.wire)
             np.abs(array, out=magnitude)
             array = magnitude
-        elif not owned or _SENDABLE[array.dtype][0] is not slot[1]:
-            array = array.astype(wire, order="C")
+        elif not owned or slot.converted:
+            array = array.astype(slot.wire, order="C")
         out.append(array)
         steps.append(tuple(step))
-        types.append(PortValueType(slot[1], tuple(array.shape[1:])))
+        types.append(PortValueType(slot.data_type, tuple(array.shape[1:])))
     return Reduced(out, types, steps, flags, int(total))
 
 
-def _strided_size(slots: list[list[Any]], stridable: list[list[int]], factor: int) -> tuple[float, int]:
+def _common_stride(slots: list[_Slot], auto_stride: list[int], total: float, max_bytes: int) -> tuple[int, float]:
+    """(step, bytes): the smallest step, the same for the ``auto_stride``
+    dimensions of every slot, with which the total fits and no dimension
+    exceeds 65535; step 0 when none does. The estimate from the total is a
+    lower bound and usually the answer (one check); otherwise the sizes,
+    which fall as the step grows, are searched."""
+    kmax = 0
+    for slot in slots:
+        shape = slot.array.shape
+        if slot.wire is not None:  # strings are never strided
+            slot.stridable = tuple(d for d in auto_stride if 0 <= d < len(shape) - 1 and shape[d + 1] > 1)
+        kmax = max(kmax, len(slot.stridable))
+    if not kmax:
+        return 0, total
+    lo = 1
+    hi = 1
+    for slot in slots:
+        for d in slot.stridable:
+            size = slot.array.shape[d + 1]
+            hi = max(hi, size)
+            lo = max(lo, -(-size // _DIM_MAX))
+    if total > max_bytes:
+        lo = max(lo, math.ceil((total / max_bytes) ** (1.0 / kmax)))
+    lo = min(lo, hi)
+    size, widest = _strided_size(slots, lo)
+    if size <= max_bytes and widest <= _DIM_MAX:
+        return lo, size
+    size, widest = _strided_size(slots, hi)
+    if size > max_bytes or widest > _DIM_MAX:
+        return 0, total
+    lo += 1
+    while lo < hi:
+        mid = (lo + hi) // 2
+        mid_size, mid_widest = _strided_size(slots, mid)
+        if mid_size <= max_bytes and mid_widest <= _DIM_MAX:
+            hi, size = mid, mid_size
+        else:
+            lo = mid + 1
+    return hi, size
+
+
+def _strided_size(slots: list[_Slot], factor: int) -> tuple[float, int]:
     """(total bytes, widest non-batch dimension) of ``slots`` strided by ``factor``."""
     total = 0
     widest = 0
-    for slot, dims in zip(slots, stridable):
-        shape = slot[0].shape
-        if not dims:
-            total += slot[3] * slot[4]
-            for d in shape[1:]:
-                if d > widest:
-                    widest = d
+    for slot in slots:
+        if not slot.stridable:
+            total += slot.items * slot.item_bytes
+            widest = max(widest, slot.widest)
             continue
-        n = slot[3] * slot[5]
-        for axis in range(1, len(shape)):
-            d = shape[axis]
-            if axis - 1 in dims:
+        n = slot.items * slot.itemsize
+        for axis, d in enumerate(slot.array.shape[1:]):
+            if axis in slot.stridable:
                 d = -(-d // factor)
             n *= d
-            if d > widest:
-                widest = d
+            widest = max(widest, d)
         total += n
     return total, widest
+
+
+def _too_large(values: list[np.ndarray], total: float, max_bytes: int) -> str:
+    """Why a sample cannot be sent, with the shapes as they were dispatched."""
+    shapes = " + ".join(
+        f"{type_name_of(a) or a.dtype}[{'x'.join(str(d) for d in a.shape)}]" for a in map(np.asarray, values)
+    )
+    if total > max_bytes:
+        return f"{shapes}: {int(total)} bytes, more than max_bytes {max_bytes} even reduced"
+    return f"{shapes}: a dimension over 65535 that may not be strided"
 
 
 def summarize(array: np.ndarray, max_elements: int = 65536) -> tuple[list[float] | None, Any]:

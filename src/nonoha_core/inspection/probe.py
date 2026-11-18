@@ -25,6 +25,11 @@ from ..node import BaseNodeGraph
 from ..port import PortValue, StaticTypePort
 from .reduce import reduce_values, summarize, type_name_of
 
+# Where a watch or activity entry is in taking a sample (its ``state``)
+IDLE = 0  # nothing asked, nothing held
+ASKED = 1  # in its probe's ``pending``: the next dispatch is taken
+HELD = 2  # a sample was taken (``captured``), not sent yet
+
 
 @dataclass(frozen=True)
 class PortRef:
@@ -77,13 +82,14 @@ class Accumulator:
     items were lost (overwritten, or dropped by a reset).
     """
 
-    __slots__ = ("cap", "slices", "indexes", "rings", "starts", "lengths", "gap")
+    __slots__ = ("cap", "slices", "indexes", "rings", "item_bytes", "starts", "lengths", "gap")
 
     def __init__(self, cap: int, slices: list | None = None):
         self.cap = cap
         self.slices = slices or None
         self.indexes: list[tuple] | None = None  # per slot, when the watch slices
         self.rings: list[np.ndarray] | None = None
+        self.item_bytes: list[int] = []  # per slot
         self.starts: list[int] = []
         self.lengths: list[int] = []
         self.gap = False
@@ -109,8 +115,8 @@ class Accumulator:
         else:
             held = [v if v.ndim else v.reshape(1) for v in values]
         self.indexes = indexes
-        row_bytes = sum(int(np.prod(v.shape[1:], dtype=np.int64)) * v.dtype.itemsize for v in held) or 1
-        rows = max(1, self.cap // row_bytes, max((v.shape[0] for v in held), default=1))
+        self.item_bytes = [int(np.prod(v.shape[1:], dtype=np.int64)) * v.dtype.itemsize for v in held]
+        rows = max(1, self.cap // (sum(self.item_bytes) or 1), max((v.shape[0] for v in held), default=1))
         self.rings = [np.empty((rows, *v.shape[1:]), dtype=v.dtype) for v in held]
         self.starts = [0] * len(held)
         self.lengths = [0] * len(held)
@@ -159,6 +165,10 @@ class Accumulator:
                 length = size
                 self.gap = True
             lengths[i] = length
+
+    def held_bytes(self) -> int:
+        """Bytes of the items held (what a sample of them will cost at most)."""
+        return sum(length * size for length, size in zip(self.lengths, self.item_bytes))
 
     def take(self) -> list[np.ndarray] | None:
         rings = self.rings
@@ -232,7 +242,7 @@ class Probe:
                     entry.captured_error = str(e)
                 entry.captured_count = count
                 entry.captured_t = taken
-                entry.armed = False
+                entry.state = HELD
             self.pending.clear()
             self.cpu += time.perf_counter() - t0
         if self.accumulators:
@@ -245,17 +255,18 @@ class Probe:
                 for acc in self.accumulators:
                     acc.rings = None
 
-    def arm(self, entry: Any) -> None:
-        """Take a sample for ``entry`` at the next dispatch (cold paths; the
-        tick does the same inline)."""
-        if not entry.armed:
-            entry.armed = True
+    def ask(self, entry: Any) -> None:
+        """Take a sample for ``entry`` at the next dispatch."""
+        if entry.state != ASKED:
+            entry.state = ASKED
             self.pending.append(entry)
 
-    def disarm(self, entry: Any) -> None:
-        if entry.armed:
-            entry.armed = False
+    def forget(self, entry: Any) -> None:
+        """Stop taking or holding a sample for ``entry``."""
+        if entry.state == ASKED:
             self.pending = [e for e in self.pending if e is not entry]
+        entry.state = IDLE
+        entry.captured = None
 
     def attach(self, port: StaticTypePort) -> bool:
         """Subscribe to ``port``; True when it is a different port than before."""
