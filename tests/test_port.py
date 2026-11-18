@@ -44,6 +44,71 @@ def test_serialize_port_values():
     # fmt: on
 
 
+
+def _reference_port_values_to_bytes(values, value_type_list, byte_array):
+    """The encoder as it was before the one-conversion rewrite (1.1.0.dev0):
+    the oracle the rewrite must match byte for byte."""
+    import struct
+
+    byte_array += len(value_type_list).to_bytes(1, "big")
+    big_endian = {
+        DataType.Float32: ">f4", DataType.Float64: ">f8", DataType.Int8: ">i1",
+        DataType.Uint8: ">u1", DataType.Bool: "bool", DataType.Int16: ">i2",
+        DataType.Uint16: ">u2", DataType.Int32: ">i4", DataType.Uint32: ">u4",
+        DataType.Int64: ">i8", DataType.Uint64: ">u8",
+    }
+    for value, value_type in zip(values, value_type_list):
+        data_type = value_type.data_type
+        byte_array += data_type.value.to_bytes(1, "big")
+        byte_array += value_type.ndim.to_bytes(1, "big")
+        byte_array += struct.pack(f">{len(value.shape) - 1}H", *value.shape[1:])
+        if data_type == DataType.String:
+            if len(value) == 0:
+                byte_array += (0).to_bytes(4, "big")
+            else:
+                string_bytes = "\0".join(value.ravel().tolist()).encode("utf-8")
+                byte_array += (len(string_bytes) + 1).to_bytes(4, "big")
+                byte_array += string_bytes
+                byte_array += b"\0"
+        else:
+            value_bytes = value.astype(big_endian[data_type], copy=False).tobytes()
+            byte_array += len(value_bytes).to_bytes(4, "big")
+            byte_array += value_bytes
+    return byte_array
+
+
+def test_serialize_matches_the_previous_encoder_byte_for_byte():
+    rng = np.random.default_rng(7)
+    numeric = [
+        (DataType.Bool, np.bool_), (DataType.Int8, np.int8), (DataType.Uint8, np.uint8),
+        (DataType.Int16, np.int16), (DataType.Uint16, np.uint16), (DataType.Int32, np.int32),
+        (DataType.Uint32, np.uint32), (DataType.Int64, np.int64), (DataType.Uint64, np.uint64),
+        (DataType.Float32, np.float32), (DataType.Float64, np.float64),
+    ]
+    cases = []
+    for data_type, np_type in numeric:
+        for shape in [(), (3,), (2, 4), (2, 3, 4)]:
+            for batch in [1, 5]:
+                raw = rng.integers(0, 100, size=(batch, *shape)) if data_type != DataType.Bool else rng.integers(0, 2, size=(batch, *shape))
+                array = raw.astype(np_type)
+                cases.append(([array], [PortValueType(data_type, shape)]))
+                # big-endian input, Fortran order, a strided view, another dtype (cast)
+                cases.append(([array.astype(array.dtype.newbyteorder(">"))], [PortValueType(data_type, shape)]))
+                cases.append(([np.asfortranarray(array)], [PortValueType(data_type, shape)]))
+                if array.shape[-1] > 1 and array.ndim > 1:
+                    cases.append(([array[..., ::2]], [PortValueType(data_type, (*shape[:-1], len(range(0, shape[-1], 2))))]))
+                cases.append(([raw.astype(np.float64)], [PortValueType(data_type, shape)]))
+    strings = np.array([["a", "bc"], ["日本", ""]], dtype=np.dtypes.StringDType())
+    cases.append(([strings], [PortValueType(DataType.String, (2,))]))
+    cases.append(([np.array([], dtype=np.dtypes.StringDType())], [PortValueType(DataType.String)]))
+    # several values in one message, written after existing bytes
+    cases.append(([np.ones((2, 3), np.float32), np.zeros((2,), np.int16)],
+                  [PortValueType(DataType.Float32, (3,)), PortValueType(DataType.Int16)]))
+    for values, types in cases:
+        expected = _reference_port_values_to_bytes(values, types, bytearray(b"head"))
+        assert port_values_to_bytes(values, types, bytearray(b"head")) == expected, (values, types)
+
+
 # --- receive_value_with_index firing semantics (fill tracking) ---
 
 F32 = PortValueType(DataType.Float32)

@@ -32,13 +32,28 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True, frozen=True)
+class EnvDoc:
+    """An environment value a node reads (see ``nonoha_core.environment``).
+
+    Declaring it lets tools list what to set and lets hosts accept a value
+    for it; the value itself is never part of the catalog.
+    """
+
+    name: str
+    description: str = ""
+    url: str = ""  # where to get it (e.g. the provider's API key page)
+
+
+@dataclass(slots=True, frozen=True)
 class NodeDoc:
-    """Catalog documentation for a node. Not used at runtime."""
+    """Catalog documentation for a node. Not used on the data path."""
 
     description: str = ""
     category: str = ""
     inputs: dict[str, str] = field(default_factory=dict)
     outputs: dict[str, str] = field(default_factory=dict)
+    # Environment values the node reads with its current properties
+    env: tuple[EnvDoc, ...] = ()
 
 
 class PropertyDescription(TypedDict, total=False):

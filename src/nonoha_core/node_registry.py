@@ -25,12 +25,21 @@ class PropertyMetadata:
 
 
 @dataclass
+class EnvMetadata:
+    name: str
+    description: str
+    url: str
+
+
+@dataclass
 class NodeMetadata:
     description: str
     category: str
     inputs: list[PortMetadata]
     outputs: list[PortMetadata]
     properties: dict[str, PropertyMetadata]
+    # Environment values the node reads with its default properties
+    env: list[EnvMetadata] = field(default_factory=list)
 
 
 @dataclass
@@ -111,6 +120,7 @@ class NodeRegistry:
             inputs=inputs,
             outputs=outputs,
             properties=properties,
+            env=[EnvMetadata(e.name, e.description, e.url) for e in doc.env] if doc else [],
         )
 
         temp.finalize()

@@ -56,6 +56,11 @@ can be handed directly to NumPy, SciPy, or any other library — no wrapper
 types to unpack. Port types and shapes are declared at connection time,
 which keeps runtime validation out of the hot path.
 
+A dispatched value is valid during the dispatch only. A sender may write
+every dispatch into the same preallocated buffer (`out=`), so nothing is
+allocated per dispatch; a receiver that keeps a value past its callback
+copies it (`values[0].copy()`).
+
 ## Performance Guidelines
 
 nonoha is designed for real-time data processing. **Minimizing overhead in the hot path is critical.**
