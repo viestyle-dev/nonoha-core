@@ -2,6 +2,27 @@
 
 `nonoha-core` is a Python package that provides the core functionality for **nonoha** - a lightweight node-based data processing framework where data flows seamlessly from node to node and integrates naturally with the Python ecosystem.
 
+## The nonoha ecosystem
+
+nonoha is node-based programming redesigned for the era of developing together with AI: a Python framework for real-time signal processing and applications. AI agents write a graph as code, people edit the same graph as a diagram, and an engine with no GUI runs it.
+
+<a href="https://hub.nonoha.dev/ecosystem/">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://hub.nonoha.dev/screens/ecosystem-dark.webp">
+    <img src="https://hub.nonoha.dev/screens/ecosystem-light.webp" width="100%" alt="The nonoha codebases in five layers, each depending on the ones below it. Tools and UIs: nonoha Hub, its CLI, nonoha-editor, custom web UIs, and your own apps. Clients: nonoha-client-js. Runtimes: nonoha-engine, and nonoha-embedded inside apps. Nodes: sci-nodes and plugins. Core: nonoha-core, on NumPy.">
+  </picture>
+</a>
+
+| Layer | Codebases |
+| --- | --- |
+| Tools and UIs | [nonoha Hub and its CLI](https://hub.nonoha.dev/), [nonoha-editor](https://github.com/viestyle-dev/nonoha-editor), your own web UI or app |
+| Clients | [nonoha-client-js](https://github.com/viestyle-dev/nonoha-client-js) |
+| Runtimes | [nonoha-engine](https://github.com/viestyle-dev/nonoha-engine) (standalone), [nonoha-embedded](https://github.com/viestyle-dev/nonoha-embedded) (inside an app) |
+| Nodes | [sci-nodes](https://github.com/viestyle-dev/sci-nodes), [plugins](https://hub.nonoha.dev/plugins/) |
+| Core | **nonoha-core** (this repository) |
+
+The [nonoha website](https://hub.nonoha.dev/) has the [documentation](https://hub.nonoha.dev/docs/) and [workspaces](https://hub.nonoha.dev/workspaces/) to start from.
+
 ## Installation
 
 Install from the repository:
