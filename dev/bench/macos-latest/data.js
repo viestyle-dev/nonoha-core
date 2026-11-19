@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795012938724,
+  "lastUpdate": 1795062655572,
   "repoUrl": "https://github.com/viestyle-dev/nonoha-core",
   "entries": {
     "nonoha-core Benchmark (macos-latest)": [
@@ -450,6 +450,156 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.0000036695929384690724",
             "extra": "mean: 5.020621806062491 usec\nrounds: 121833"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "fivetwothreesix@gmail.com",
+            "name": "IOE",
+            "username": "ContentsViewer"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "388cf207f851c48c6dfffd4471a0455e31e8610f",
+          "message": "Merge pull request #2 from viestyle-dev/feature/editor-tuning\n\nInspector: Enhance activity reporting with rate calculations and stop…",
+          "timestamp": "2026-11-19T13:28:29+09:00",
+          "tree_id": "5685aa697c8899d581619856ce1e7822b9a2b35e",
+          "url": "https://github.com/viestyle-dev/nonoha-core/commit/388cf207f851c48c6dfffd4471a0455e31e8610f"
+        },
+        "date": 1795062654547,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benchmarks/test_endian_conversion.py::test_frombuffer_big_to_native",
+            "value": 73286.16945535508,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000019627616283327393",
+            "extra": "mean: 13.64513942305562 usec\nrounds: 123717"
+          },
+          {
+            "name": "benchmarks/test_endian_conversion.py::test_astype_native_to_big",
+            "value": 95013.91224829323,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000009306711418886461",
+            "extra": "mean: 10.524774491831993 usec\nrounds: 129033"
+          },
+          {
+            "name": "benchmarks/test_endian_conversion.py::test_total_cost_convert_once",
+            "value": 2761.623980980378,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00031321051830055966",
+            "extra": "mean: 362.10577793614016 usec\nrounds: 4913"
+          },
+          {
+            "name": "benchmarks/test_node_compute.py::test_add_node",
+            "value": 624511.3345726389,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0000021093872079312517",
+            "extra": "mean: 1.6012519623591652 usec\nrounds: 100848"
+          },
+          {
+            "name": "benchmarks/test_node_compute.py::test_fft_node",
+            "value": 100685.92930521978,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000007200890470715356",
+            "extra": "mean: 9.931874363185303 usec\nrounds: 123077"
+          },
+          {
+            "name": "benchmarks/test_node_compute.py::test_values_buffer_node",
+            "value": 160.50651929801202,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004435384984223416",
+            "extra": "mean: 6.230276529411885 msec\nrounds: 204"
+          },
+          {
+            "name": "benchmarks/test_port_dispatch.py::test_dispatch_10_callbacks",
+            "value": 1216683.5538054162,
+            "unit": "iter/sec",
+            "range": "stddev: 8.623128359886168e-7",
+            "extra": "mean: 821.9064002898416 nsec\nrounds: 173914"
+          },
+          {
+            "name": "benchmarks/test_port_dispatch.py::test_dispatch_100_callbacks",
+            "value": 297288.5849276104,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0000021041150820653725",
+            "extra": "mean: 3.3637349387077857 usec\nrounds: 183218"
+          },
+          {
+            "name": "benchmarks/test_port_dispatch.py::test_dispatch_large_payload",
+            "value": 1351520.634614539,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00000406296575348693",
+            "extra": "mean: 739.9073120960901 nsec\nrounds: 176461"
+          },
+          {
+            "name": "benchmarks/test_port_dispatch.py::test_receive_value_with_index",
+            "value": 7889263.87010267,
+            "unit": "iter/sec",
+            "range": "stddev: 3.141263217544278e-7",
+            "extra": "mean: 126.75453837838236 nsec\nrounds: 91601"
+          },
+          {
+            "name": "benchmarks/test_port_dispatch.py::test_dispatch_chain_10",
+            "value": 174135.94081392497,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000005054666404887253",
+            "extra": "mean: 5.742639889995838 usec\nrounds: 120005"
+          },
+          {
+            "name": "benchmarks/test_port_subscribe.py::test_subscribe_1000",
+            "value": 219.8695906912846,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0014537186364564471",
+            "extra": "mean: 4.5481505507693605 msec\nrounds: 325"
+          },
+          {
+            "name": "benchmarks/test_port_subscribe.py::test_unsubscribe_middle",
+            "value": 709.8489504605627,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0005051842360620491",
+            "extra": "mean: 1.408750410000863 msec\nrounds: 100"
+          },
+          {
+            "name": "benchmarks/test_port_subscribe.py::test_subscribe_unsubscribe_cycle",
+            "value": 8008.406097072273,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00024123741162760236",
+            "extra": "mean: 124.86879260101229 usec\nrounds: 12353"
+          },
+          {
+            "name": "benchmarks/test_serialization.py::test_to_bytes_f32_small",
+            "value": 623670.5906847923,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000002332001182562258",
+            "extra": "mean: 1.6034105422576492 usec\nrounds: 93756"
+          },
+          {
+            "name": "benchmarks/test_serialization.py::test_to_bytes_f32_large",
+            "value": 196190.05893858644,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000012127582494948764",
+            "extra": "mean: 5.097098218992996 usec\nrounds: 169005"
+          },
+          {
+            "name": "benchmarks/test_serialization.py::test_to_bytes_multi_value",
+            "value": 181499.63292149297,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000011276913187228138",
+            "extra": "mean: 5.509653016392305 usec\nrounds: 145455"
+          },
+          {
+            "name": "benchmarks/test_serialization.py::test_to_bytes_string",
+            "value": 176544.08282537563,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000012194146396503175",
+            "extra": "mean: 5.664307656174045 usec\nrounds: 118218"
           }
         ]
       }
