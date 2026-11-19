@@ -203,7 +203,10 @@ class Probe:
     for and reported by the hub.
     """
 
-    __slots__ = ("ref", "port", "count", "last_t", "seen_count", "refs", "accumulators", "pending", "cpu", "clock", "_key")
+    __slots__ = (
+        "ref", "port", "count", "last_t", "seen_count", "rate", "rate_weight", "stop_after",
+        "refs", "accumulators", "pending", "cpu", "clock", "_key",
+    )
 
     def __init__(self, ref: PortRef, clock: Callable[[], float] = time.monotonic):
         self.ref = ref
@@ -213,6 +216,13 @@ class Probe:
         # dispatch: the callback stays cheap).
         self.last_t: float | None = None
         self.seen_count = 0
+        # Dispatches per second (0: not known yet), the weight of the average
+        # behind it, and the seconds without a dispatch after which the port
+        # counts as stopped; the hub's tick updates them when it sees a new
+        # dispatch.
+        self.rate = 0.0
+        self.rate_weight = 0.0
+        self.stop_after = 0.0
         self.refs = 0
         self.accumulators: list[Accumulator] = []
         # Watches and activity entries waiting for the next dispatch

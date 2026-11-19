@@ -264,12 +264,104 @@ def test_activity_reports_rate_shape_and_stats():
     for _ in range(10):
         source.emit(value=2.0)
         step(inspector, clock, 0.1)
-    step(inspector, clock, 0.6)  # one more report after the last dispatch
+    step(inspector, clock, 1.6)  # past the stop (two periods, at least a second) and one round
     rows = [row for m in messages(sent, "activity") for row in m["p"]]
     flowing = [row for row in rows if row[2] > 0][-1]
     assert flowing[0] == 7 and flowing[1] == 10 and flowing[4] == "f32" and flowing[5] == [1, 4]
-    assert flowing[6] == [2.0, 2.0, 2.0] and 4.0 <= flowing[2] <= 12.0
+    assert flowing[6] == [2.0, 2.0, 2.0] and 9.5 <= flowing[2] <= 10.5
     assert rows[-1][1] == 10 and rows[-1][2] == 0.0  # and then it stopped
+
+
+# --- the activity rate: steady under jitter, stops once, no spike ------------------------
+
+def run_dispatches(inspector, clock, source, times, until, dt=0.05):
+    """Tick every dt until `until`; each dispatch in `times` lands just before
+    the first tick at or after it. Returns [(ts, row)] of the activity rows."""
+    times = sorted(times)
+    i = 0
+    while clock.t < until - 1e-9:
+        clock.t = round(clock.t + dt, 6)
+        while i < len(times) and times[i] <= clock.t + 1e-9:
+            source.emit()
+            i += 1
+        inspector.tick(clock.t)
+
+
+def activity_rows(sent, pid=7):
+    return [(m["ts"], row) for m in messages(sent, "activity") for row in m["p"] if row[0] == pid]
+
+
+def watch_activity(inspector, session, ids=(7,)):
+    inspector.handle(session, {"op": "activity", "interval_ms": 500,
+                               "ports": [{"id": i, "node": "Source_1", "port": "out"} for i in ids]})
+
+
+def test_activity_rate_of_a_2hz_port_stays_steady_under_tick_jitter():
+    """A 2 Hz port sees 0, 1 or 2 dispatches per 0.5 s round; its rate must not
+    read 0 (the port would look stopped) nor jump between 0, 2 and 4."""
+    rng = np.random.default_rng(1)
+    graph, source, clock, inspector, session, sent = make()
+    watch_activity(inspector, session)
+    times = [0.5 * k + 0.05 * rng.integers(-1, 2) for k in range(1, 41)]
+    run_dispatches(inspector, clock, source, times, 20.0)
+    steady = [row[2] for ts, row in activity_rows(sent) if 2.0 <= ts <= 19.5]
+    assert steady and all(1.8 <= hz <= 2.2 for hz in steady), steady
+
+
+def test_activity_rate_of_a_15hz_port():
+    graph, source, clock, inspector, session, sent = make()
+    watch_activity(inspector, session)
+    run_dispatches(inspector, clock, source, [k / 15 for k in range(1, 151)], 10.0)
+    steady = [row[2] for ts, row in activity_rows(sent) if 2.0 <= ts <= 9.9]
+    assert steady and all(14.0 <= hz <= 16.0 for hz in steady), steady
+
+
+def test_activity_stop_is_reported_once_two_periods_after_the_last_dispatch():
+    graph, source, clock, inspector, session, sent = make()
+    watch_activity(inspector, session)
+    run_dispatches(inspector, clock, source, [0.5 * k for k in range(1, 7)], 8.0)  # last at 3.0 s
+    rows = activity_rows(sent)
+    flowing = [hz > 0 for ts, (_, _, hz, *rest) in rows]
+    # flowing once established, then a single change to stopped (full rounds repeat it)
+    changes = [ts for (ts, _), was, now in zip(rows[1:], flowing, flowing[1:]) if was != now]
+    stopped_at = [ts for ts, row in rows if ts > 3.0 and row[2] == 0.0][0]
+    assert 1.0 <= stopped_at - 3.0 <= 1.6
+    assert changes[-1] == stopped_at and not any(f for (ts, _), f in zip(rows, flowing) if ts >= stopped_at)
+
+
+def test_activity_after_a_stop_the_first_dispatch_has_no_rate_and_the_second_has():
+    graph, source, clock, inspector, session, sent = make()
+    watch_activity(inspector, session)
+    run_dispatches(inspector, clock, source, [0.5 * k for k in range(1, 7)], 6.0)  # stopped at ~4.5 s
+    count = activity_rows(sent)[-1][1][1]
+    run_dispatches(inspector, clock, source, [6.2, 6.7], 7.5)
+    after = [row for ts, row in activity_rows(sent) if ts > 6.0]
+    first = [row for row in after if row[1] == count + 1]
+    second = [row for row in after if row[1] == count + 2]
+    assert first and all(row[2] == 0.0 for row in first)
+    assert second and 1.8 <= second[0][2] <= 2.2
+
+
+def test_activity_rate_does_not_spike_when_ports_are_added():
+    """Adding a port (a new subscription, or another id on a watched port) starts
+    a round at once; a short round must not make a rate out of one dispatch."""
+    graph, source, clock, inspector, session, sent = make()
+    times = [0.5 * k for k in range(1, 21)]
+    run_dispatches(inspector, clock, source, [t for t in times if t <= 2.0], 2.02)
+    watch_activity(inspector, session)  # subscribes while the port flows
+    run_dispatches(inspector, clock, source, [t for t in times if 2.0 < t <= 5.0], 5.02)
+    watch_activity(inspector, session, ids=(7, 8))  # another id on the same probe
+    run_dispatches(inspector, clock, source, [t for t in times if t > 5.0], 10.0)
+    rates = [row[2] for ts, row in activity_rows(sent, 7) + activity_rows(sent, 8)]
+    assert rates and max(rates) <= 2.2, rates
+
+
+def test_activity_single_dispatches_far_apart_are_not_a_flow():
+    graph, source, clock, inspector, session, sent = make()
+    watch_activity(inspector, session)
+    run_dispatches(inspector, clock, source, [1.0, 13.0, 25.0], 27.0)
+    assert all(row[2] == 0.0 for ts, row in activity_rows(sent))
+    assert activity_rows(sent)[-1][1][1] == 3
 
 
 def test_lag_pauses_detaches_and_resumes():

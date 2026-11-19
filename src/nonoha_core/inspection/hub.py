@@ -56,6 +56,7 @@ import logging
 import time
 from collections import deque
 from dataclasses import dataclass, field
+from math import exp
 from typing import Any, Callable, ClassVar
 
 from ..error_log import ErrorLog
@@ -70,6 +71,20 @@ logger = logging.getLogger(__name__)
 PROTOCOL_VERSION = 1
 _CLIENT_SLOW_S = 1.0  # no ack for this long while the credit window is full
 _WATCH_ID_MAX = 0xFFFF  # frames carry the watch id as u16
+
+# A port's rate: dispatches over the observed intervals, averaged over about a
+# second. The average is weighted by time (ticks that see one dispatch and
+# ticks that see several average to the true rate) and normalized by the weight
+# so far (while it covers less than a second, it reads count / time). A port
+# stops when no dispatch came for two of its periods, within [_STOP_MIN_S,
+# _STOP_MAX_S]: the floor keeps a short stall of the engine from stopping a
+# fast port. After a stop, the first dispatch has no rate yet and the second
+# one gives it; a dispatch more than _STOP_MAX_S after the previous one counts
+# as a first one again.
+_RATE_TAU_S = 1.0
+_STOP_PERIODS = 2.0
+_STOP_MIN_S = 1.0
+_STOP_MAX_S = 10.0
 
 
 @dataclass
@@ -178,8 +193,6 @@ class ActivityEntry:
     ref: PortRef
     max_elements: int
     probe: Probe
-    prev_count: int = 0
-    prev_t: float = 0.0
     sent_key: tuple | None = None
     # Taking statistics (IDLE / ASKED / HELD); the probe fills these during a dispatch
     state: int = IDLE
@@ -416,7 +429,7 @@ class Inspector:
             if pid in session.activity:
                 continue
             probe, port = self._acquire(session.graph_ref, ref)
-            entry = ActivityEntry(ref, max_elements, probe, prev_count=probe.count, prev_t=now)
+            entry = ActivityEntry(ref, max_elements, probe)
             # The port's current value, so a row shows before the next dispatch
             current = port.current_values if port is not None else None
             if current is not None:
@@ -635,6 +648,19 @@ class Inspector:
         for probe in self._probes.values():
             count = probe.count
             if count != probe.seen_count:  # date the newest dispatch, at tick resolution
+                last_t = probe.last_t
+                if last_t is None or now - last_t > probe.stop_after:
+                    probe.rate = probe.rate_weight = 0.0  # the first dispatch after a stop: no rate yet
+                    probe.stop_after = _STOP_MAX_S
+                elif now > last_t:
+                    gap = now - last_t
+                    a = 1.0 - exp(-gap / _RATE_TAU_S)
+                    weight = probe.rate_weight
+                    new_weight = weight + a * (1.0 - weight)
+                    rate = (probe.rate * weight * (1.0 - a) + a * (count - probe.seen_count) / gap) / new_weight
+                    probe.rate = rate
+                    probe.rate_weight = new_weight
+                    probe.stop_after = min(max(_STOP_PERIODS / rate, _STOP_MIN_S), _STOP_MAX_S)
                 probe.seen_count = count
                 probe.last_t = now
             if probe.cpu:
@@ -743,10 +769,10 @@ class Inspector:
         for pid, entry in session.activity.items():
             probe = entry.probe
             count = probe.count
-            elapsed = now - entry.prev_t
-            hz = (count - entry.prev_count) / elapsed if elapsed > 0 else 0.0
-            entry.prev_count = count
-            entry.prev_t = now
+            last_t = probe.last_t
+            age = None if last_t is None else now - last_t
+            # 0: stopped, or no rate yet (see _RATE_TAU_S)
+            hz = probe.rate if age is not None and age <= probe.stop_after else 0.0
             captured = entry.captured
             if captured is not None:
                 dtype, shape, stats, last = captured
@@ -758,8 +784,7 @@ class Inspector:
             if not full and entry.sent_key == key:
                 continue  # unchanged: no row
             entry.sent_key = key
-            age = None if probe.last_t is None else round(now - probe.last_t, 3)
-            rows.append([pid, count, round(hz, 2), age, dtype, shape, stats, last])
+            rows.append([pid, count, round(hz, 2), None if age is None else round(age, 3), dtype, shape, stats, last])
         self._send(session, {"t": "activity", "ts": now, "paused": paused, "p": rows})
 
     def _send_samples(self, session: Session, now: float) -> None:
