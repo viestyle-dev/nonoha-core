@@ -5,7 +5,6 @@ import numpy as np
 from nonoha_core.node import BaseNode, NodeDoc, replace_node_input_port, replace_node_output_port
 from nonoha_core.data_type import (
     DataType,
-    PortValueType,
     PropertyDataType,
     name_to_port_value_type,
 )
@@ -55,10 +54,18 @@ class SinNode(BaseNode):
         in_type: Input/output data type (default: "f32")
     """
 
+    PROPERTIES = {
+        "in_type": {
+            "description": "Input type (e.g. 'f32', 'f32[3]')",
+            "data_type": "str",
+            "default_value": "f32",
+        },
+    }
+
     def __init__(self, name: str):
         super().__init__(name, "Sin")
 
-        in_type = PortValueType(DataType.Float32)
+        in_type = name_to_port_value_type(str(self.properties["in_type"]))
 
         input_in = StaticTypeInputPort("in", [in_type])
         input_in.subscribe(id(self), self._on_input_in)
@@ -71,8 +78,6 @@ class SinNode(BaseNode):
 
         self.inputs[input_in.name] = input_in
         self.outputs[output_out.name] = output_out
-
-        self.properties["in_type"] = in_type.name
 
     def set_properties(self, properties: dict[str, PropertyDataType]):
         # 1. Extract and validate properties
@@ -143,10 +148,18 @@ class CosNode(BaseNode):
         in_type: Input/output data type (default: "f32")
     """
 
+    PROPERTIES = {
+        "in_type": {
+            "description": "Input type (e.g. 'f32', 'f32[3]')",
+            "data_type": "str",
+            "default_value": "f32",
+        },
+    }
+
     def __init__(self, name: str):
         super().__init__(name, "Cos")
 
-        in_type = PortValueType(DataType.Float32)
+        in_type = name_to_port_value_type(str(self.properties["in_type"]))
 
         input_in = StaticTypeInputPort("in", [in_type])
         input_in.subscribe(id(self), self._on_input_in)
@@ -159,8 +172,6 @@ class CosNode(BaseNode):
 
         self.inputs[input_in.name] = input_in
         self.outputs[output_out.name] = output_out
-
-        self.properties["in_type"] = in_type.name
 
     def set_properties(self, properties: dict[str, PropertyDataType]):
         # 1. Extract and validate properties
@@ -231,10 +242,18 @@ class TanNode(BaseNode):
         in_type: Input/output data type (default: "f32")
     """
 
+    PROPERTIES = {
+        "in_type": {
+            "description": "Input type (e.g. 'f32', 'f32[3]')",
+            "data_type": "str",
+            "default_value": "f32",
+        },
+    }
+
     def __init__(self, name: str):
         super().__init__(name, "Tan")
 
-        in_type = PortValueType(DataType.Float32)
+        in_type = name_to_port_value_type(str(self.properties["in_type"]))
 
         input_in = StaticTypeInputPort("in", [in_type])
         input_in.subscribe(id(self), self._on_input_in)
@@ -247,8 +266,6 @@ class TanNode(BaseNode):
 
         self.inputs[input_in.name] = input_in
         self.outputs[output_out.name] = output_out
-
-        self.properties["in_type"] = in_type.name
 
     def set_properties(self, properties: dict[str, PropertyDataType]):
         # 1. Extract and validate properties
@@ -319,10 +336,18 @@ class AsinNode(BaseNode):
         in_type: Input/output data type (default: "f32")
     """
 
+    PROPERTIES = {
+        "in_type": {
+            "description": "Input type (e.g. 'f32', 'f32[3]')",
+            "data_type": "str",
+            "default_value": "f32",
+        },
+    }
+
     def __init__(self, name: str):
         super().__init__(name, "Asin")
 
-        in_type = PortValueType(DataType.Float32)
+        in_type = name_to_port_value_type(str(self.properties["in_type"]))
 
         input_in = StaticTypeInputPort("in", [in_type])
         input_in.subscribe(id(self), self._on_input_in)
@@ -335,8 +360,6 @@ class AsinNode(BaseNode):
 
         self.inputs[input_in.name] = input_in
         self.outputs[output_out.name] = output_out
-
-        self.properties["in_type"] = in_type.name
 
     def set_properties(self, properties: dict[str, PropertyDataType]):
         # 1. Extract and validate properties
@@ -407,10 +430,18 @@ class AcosNode(BaseNode):
         in_type: Input/output data type (default: "f32")
     """
 
+    PROPERTIES = {
+        "in_type": {
+            "description": "Input type (e.g. 'f32', 'f32[3]')",
+            "data_type": "str",
+            "default_value": "f32",
+        },
+    }
+
     def __init__(self, name: str):
         super().__init__(name, "Acos")
 
-        in_type = PortValueType(DataType.Float32)
+        in_type = name_to_port_value_type(str(self.properties["in_type"]))
 
         input_in = StaticTypeInputPort("in", [in_type])
         input_in.subscribe(id(self), self._on_input_in)
@@ -423,8 +454,6 @@ class AcosNode(BaseNode):
 
         self.inputs[input_in.name] = input_in
         self.outputs[output_out.name] = output_out
-
-        self.properties["in_type"] = in_type.name
 
     def set_properties(self, properties: dict[str, PropertyDataType]):
         # 1. Extract and validate properties
@@ -495,10 +524,18 @@ class AtanNode(BaseNode):
         in_type: Input/output data type (default: "f32")
     """
 
+    PROPERTIES = {
+        "in_type": {
+            "description": "Input type (e.g. 'f32', 'f32[3]')",
+            "data_type": "str",
+            "default_value": "f32",
+        },
+    }
+
     def __init__(self, name: str):
         super().__init__(name, "Atan")
 
-        in_type = PortValueType(DataType.Float32)
+        in_type = name_to_port_value_type(str(self.properties["in_type"]))
 
         input_in = StaticTypeInputPort("in", [in_type])
         input_in.subscribe(id(self), self._on_input_in)
@@ -511,8 +548,6 @@ class AtanNode(BaseNode):
 
         self.inputs[input_in.name] = input_in
         self.outputs[output_out.name] = output_out
-
-        self.properties["in_type"] = in_type.name
 
     def set_properties(self, properties: dict[str, PropertyDataType]):
         # 1. Extract and validate properties
@@ -586,10 +621,18 @@ class Atan2Node(BaseNode):
         in_type: Input/output data type (default: "f32")
     """
 
+    PROPERTIES = {
+        "in_type": {
+            "description": "Input type (e.g. 'f32', 'f32[3]')",
+            "data_type": "str",
+            "default_value": "f32",
+        },
+    }
+
     def __init__(self, name: str):
         super().__init__(name, "Atan2")
 
-        in_type = PortValueType(DataType.Float32)
+        in_type = name_to_port_value_type(str(self.properties["in_type"]))
 
         input_in = StaticTypeInputPort(
             "in",
@@ -606,8 +649,6 @@ class Atan2Node(BaseNode):
 
         self.inputs[input_in.name] = input_in
         self.outputs[output_out.name] = output_out
-
-        self.properties["in_type"] = in_type.name
 
     def set_properties(self, properties: dict[str, PropertyDataType]):
         # 1. Extract and validate properties
@@ -683,10 +724,18 @@ class Deg2RadNode(BaseNode):
         in_type: Input/output data type (default: "f32")
     """
 
+    PROPERTIES = {
+        "in_type": {
+            "description": "Input type (e.g. 'f32', 'f32[3]')",
+            "data_type": "str",
+            "default_value": "f32",
+        },
+    }
+
     def __init__(self, name: str):
         super().__init__(name, "Deg2Rad")
 
-        in_type = PortValueType(DataType.Float32)
+        in_type = name_to_port_value_type(str(self.properties["in_type"]))
 
         input_in = StaticTypeInputPort("in", [in_type])
         input_in.subscribe(id(self), self._on_input_in)
@@ -699,8 +748,6 @@ class Deg2RadNode(BaseNode):
 
         self.inputs[input_in.name] = input_in
         self.outputs[output_out.name] = output_out
-
-        self.properties["in_type"] = in_type.name
 
     def set_properties(self, properties: dict[str, PropertyDataType]):
         # 1. Extract and validate properties
@@ -771,10 +818,18 @@ class Rad2DegNode(BaseNode):
         in_type: Input/output data type (default: "f32")
     """
 
+    PROPERTIES = {
+        "in_type": {
+            "description": "Input type (e.g. 'f32', 'f32[3]')",
+            "data_type": "str",
+            "default_value": "f32",
+        },
+    }
+
     def __init__(self, name: str):
         super().__init__(name, "Rad2Deg")
 
-        in_type = PortValueType(DataType.Float32)
+        in_type = name_to_port_value_type(str(self.properties["in_type"]))
 
         input_in = StaticTypeInputPort("in", [in_type])
         input_in.subscribe(id(self), self._on_input_in)
@@ -787,8 +842,6 @@ class Rad2DegNode(BaseNode):
 
         self.inputs[input_in.name] = input_in
         self.outputs[output_out.name] = output_out
-
-        self.properties["in_type"] = in_type.name
 
     def set_properties(self, properties: dict[str, PropertyDataType]):
         # 1. Extract and validate properties

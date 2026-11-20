@@ -13,7 +13,6 @@ from nonoha_core.node import (
     replace_node_output_port,
 )
 from nonoha_core.data_type import (
-    DataType,
     PortValueType,
     PropertyDataType,
     name_to_port_value_type,
@@ -32,12 +31,30 @@ class MaskAssignNode(BaseNode):
             outputs={"x": ""},
         )
 
+    PROPERTIES = {
+        "x_type": {
+            "description": "Type of x (e.g. 'f32', 'f32[128]')",
+            "data_type": "str",
+            "default_value": "f32",
+        },
+        "mask_shape": {
+            "description": "Shape of the mask (e.g. '[128]', empty for a scalar)",
+            "data_type": "str",
+            "default_value": "",
+        },
+        "value_type": {
+            "description": "Type of the assigned value",
+            "data_type": "str",
+            "default_value": "f32",
+        },
+    }
+
     def __init__(self, name: str):
         super().__init__(name, "MaskAssign")
 
-        x_type = PortValueType(DataType.Float32)
-        value_type = PortValueType(DataType.Float32)
-        mask_type = PortValueType(DataType.Bool)
+        x_type = name_to_port_value_type(str(self.properties["x_type"]))
+        value_type = name_to_port_value_type(str(self.properties["value_type"]))
+        mask_type = name_to_port_value_type(f"bool{self.properties['mask_shape']}")
 
         input_in = StaticTypeInputPort(
             "in",
@@ -56,10 +73,6 @@ class MaskAssignNode(BaseNode):
 
         self.inputs[input_in.name] = input_in
         self.outputs[output_x.name] = output_x
-
-        self.properties["x_type"] = x_type.name
-        self.properties["mask_shape"] = mask_type.shape_str
-        self.properties["value_type"] = value_type.name
 
     def _validate_mask_shape(self, mask_shape: tuple, array_shape: tuple):
         if len(array_shape) < len(mask_shape):
@@ -170,12 +183,30 @@ class ExtractNode(BaseNode):
             outputs={"out": ""},
         )
 
+    PROPERTIES = {
+        "x_type": {
+            "description": "Type of x (e.g. 'f32', 'f32[128]')",
+            "data_type": "str",
+            "default_value": "f32[128]",
+        },
+        "mask_shape": {
+            "description": "Shape of the mask (e.g. '[128]', empty for a scalar)",
+            "data_type": "str",
+            "default_value": "[128]",
+        },
+        "axis": {
+            "description": "Axis along which to extract (0 = batch dimension)",
+            "data_type": "i32",
+            "default_value": 1,
+        },
+    }
+
     def __init__(self, name: str):
         super().__init__(name, "Extract")
 
-        x_type = PortValueType(DataType.Float32, (128,))
-        mask_type = PortValueType(DataType.Bool, (128,))
-        axis: int = 1
+        x_type = name_to_port_value_type(str(self.properties["x_type"]))
+        mask_type = name_to_port_value_type(f"bool{self.properties['mask_shape']}")
+        axis: int = int(self.properties["axis"])
         out_type = self.get_out_type(x_type, mask_type, axis)
 
         input_in = StaticTypeInputPort(
@@ -196,10 +227,6 @@ class ExtractNode(BaseNode):
         self._out_type = out_type
         self._input_in = input_in
         self._output_out = output_out
-
-        self.properties["x_type"] = x_type.name
-        self.properties["mask_shape"] = mask_type.shape_str
-        self.properties["axis"] = axis
 
     def get_out_type(self, x_type: PortValueType, mask_type: PortValueType, axis: int):
         in_np_shape = (1, *x_type.shape)

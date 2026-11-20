@@ -37,10 +37,18 @@ class AbsNode(BaseNode):
             outputs={"value": ""},
         )
 
+    PROPERTIES = {
+        "in_type": {
+            "description": "Input type (e.g. 'f32', 'f32[3]')",
+            "data_type": "str",
+            "default_value": "f32",
+        },
+    }
+
     def __init__(self, name: str):
         super().__init__(name, "Abs")
 
-        in_type = PortValueType(DataType.Float32)
+        in_type = name_to_port_value_type(str(self.properties["in_type"]))
 
         input_value = StaticTypeInputPort("value", [in_type])
         input_value.subscribe(id(self), self._on_input_value)
@@ -56,8 +64,6 @@ class AbsNode(BaseNode):
 
         self.inputs[input_value.name] = input_value
         self.outputs[output_value.name] = output_value
-
-        self.properties["in_type"] = in_type.name
 
     def set_properties(self, properties: dict[str, PropertyDataType]):
         # 1. Extract and validate properties
@@ -133,11 +139,24 @@ class SumNode(BaseNode):
             outputs={"value": ""},
         )
 
+    PROPERTIES = {
+        "in_type": {
+            "description": "Input type (e.g. 'f32', 'f32[3]')",
+            "data_type": "str",
+            "default_value": "f32[2]",
+        },
+        "axis": {
+            "description": "Axis to reduce (0 = batch dimension)",
+            "data_type": "i32",
+            "default_value": 1,
+        },
+    }
+
     def __init__(self, name: str):
         super().__init__(name, "Sum")
 
-        in_type = PortValueType(DataType.Float32, shape=(2,))
-        axis: int | None = 1
+        in_type = name_to_port_value_type(str(self.properties["in_type"]))
+        axis: int | None = int(self.properties["axis"])
         out_type = self._get_out_type(in_type, axis)
 
         input_value = StaticTypeInputPort("value", [in_type])
@@ -152,9 +171,6 @@ class SumNode(BaseNode):
 
         self.inputs[input_value.name] = input_value
         self.outputs[output_value.name] = output_value
-
-        self.properties["in_type"] = in_type.name
-        self.properties["axis"] = axis
 
     def _get_out_type(self, in_type: PortValueType, axis: int | None) -> PortValueType:
         if axis is None:
@@ -238,11 +254,24 @@ class MinNode(BaseNode):
             outputs={"out": ""},
         )
 
+    PROPERTIES = {
+        "in_type": {
+            "description": "Input type (e.g. 'f32', 'f32[3]')",
+            "data_type": "str",
+            "default_value": "f32[2]",
+        },
+        "axis": {
+            "description": "Axis to reduce (0 = batch dimension)",
+            "data_type": "i32",
+            "default_value": 1,
+        },
+    }
+
     def __init__(self, name: str):
         super().__init__(name, "Min")
 
-        in_type = PortValueType(DataType.Float32, shape=(2,))
-        axis: int | None = 1
+        in_type = name_to_port_value_type(str(self.properties["in_type"]))
+        axis: int | None = int(self.properties["axis"])
         out_type = self._get_out_type(in_type, axis)
 
         input_in = StaticTypeInputPort("in", [in_type])
@@ -258,9 +287,6 @@ class MinNode(BaseNode):
 
         self.inputs[input_in.name] = input_in
         self.outputs[output_out.name] = output_out
-
-        self.properties["in_type"] = in_type.name
-        self.properties["axis"] = axis
 
     def _get_out_type(self, in_type: PortValueType, axis: int | None) -> PortValueType:
         if axis is None:
@@ -344,11 +370,24 @@ class MaxNode(BaseNode):
             outputs={"out": ""},
         )
 
+    PROPERTIES = {
+        "in_type": {
+            "description": "Input type (e.g. 'f32', 'f32[3]')",
+            "data_type": "str",
+            "default_value": "f32[2]",
+        },
+        "axis": {
+            "description": "Axis to reduce (0 = batch dimension)",
+            "data_type": "i32",
+            "default_value": 1,
+        },
+    }
+
     def __init__(self, name: str):
         super().__init__(name, "Max")
 
-        in_type = PortValueType(DataType.Float32, shape=(2,))
-        axis: int | None = 1
+        in_type = name_to_port_value_type(str(self.properties["in_type"]))
+        axis: int | None = int(self.properties["axis"])
         out_type = self._get_out_type(in_type, axis)
 
         input_in = StaticTypeInputPort("in", [in_type])
@@ -364,9 +403,6 @@ class MaxNode(BaseNode):
 
         self.inputs[input_in.name] = input_in
         self.outputs[output_out.name] = output_out
-
-        self.properties["in_type"] = in_type.name
-        self.properties["axis"] = axis
 
     def _get_out_type(self, in_type: PortValueType, axis: int | None) -> PortValueType:
         if axis is None:
@@ -449,12 +485,25 @@ class InterpolateNode(BaseNode):
             outputs={"y": ""},
         )
 
+    PROPERTIES = {
+        "data_type": {
+            "description": "Data type of the values (e.g. 'f32')",
+            "data_type": "str",
+            "default_value": "f32",
+        },
+        "n_points": {
+            "description": "Number of reference points",
+            "data_type": "i32",
+            "default_value": 2,
+        },
+    }
+
     def __init__(self, name: str):
         super().__init__(name, "Interpolate")
 
         # Support f32, f64, c64, c128
-        data_type = DataType.Float32
-        n_points = 2
+        data_type = name_to_data_type(str(self.properties["data_type"]))
+        n_points = int(self.properties["n_points"])
 
         input_in = StaticTypeInputPort(
             "in",
@@ -482,9 +531,6 @@ class InterpolateNode(BaseNode):
 
         self.inputs[input_in.name] = input_in
         self.outputs[output_y.name] = output_y
-
-        self.properties["data_type"] = data_type_to_name(data_type)
-        self.properties["n_points"] = n_points
 
     def set_properties(self, properties: dict[str, PropertyDataType]):
         # 1. Extract and validate properties
@@ -578,10 +624,18 @@ class SqrtNode(BaseNode):
             outputs={"out": ""},
         )
 
+    PROPERTIES = {
+        "in_type": {
+            "description": "Input type (e.g. 'f32', 'f32[3]')",
+            "data_type": "str",
+            "default_value": "f32",
+        },
+    }
+
     def __init__(self, name: str):
         super().__init__(name, "Sqrt")
 
-        in_type = PortValueType(DataType.Float32)
+        in_type = name_to_port_value_type(str(self.properties["in_type"]))
 
         input_in = StaticTypeInputPort("in", [in_type])
         input_in.subscribe(id(self), self._on_input_in)
@@ -594,8 +648,6 @@ class SqrtNode(BaseNode):
 
         self.inputs[input_in.name] = input_in
         self.outputs[output_out.name] = output_out
-
-        self.properties["in_type"] = in_type.name
 
     def set_properties(self, properties: dict[str, PropertyDataType]):
         # 1. Extract and validate properties

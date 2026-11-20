@@ -27,18 +27,36 @@ class RandomUniformNode(BaseNode):
             outputs={"random": ""},
         )
 
+    PROPERTIES = {
+        "low": {
+            "description": "Lower bound (inclusive)",
+            "data_type": "f64",
+            "default_value": 0.0,
+        },
+        "high": {
+            "description": "Upper bound (exclusive)",
+            "data_type": "f64",
+            "default_value": 1.0,
+        },
+        "shape": {
+            "description": "Output shape (e.g. '[3]', empty for a scalar)",
+            "data_type": "str",
+            "default_value": "",
+        },
+    }
+
     def __init__(self, name: str):
         super().__init__(name, "RandomUniform")
 
         input_dispatch = StaticTypeInputPort("dispatch", [PortValueType(DataType.Any)])
         input_dispatch.subscribe(id(self), self._on_input_dispatch)
 
-        out_type = PortValueType(DataType.Float32)
+        out_type = name_to_port_value_type(f"f32{self.properties['shape']}")
 
         output_random = StaticTypeOutputPort("random", [out_type])
 
-        self._low = 0.0
-        self._high = 1.0
+        self._low = float(self.properties["low"])
+        self._high = float(self.properties["high"])
         self._input_dispatch = input_dispatch
         self._output_random = output_random
         self._rng = np.random.default_rng()
@@ -46,10 +64,6 @@ class RandomUniformNode(BaseNode):
 
         self.inputs[input_dispatch.name] = input_dispatch
         self.outputs[output_random.name] = output_random
-
-        self.properties["low"] = self._low
-        self.properties["high"] = self._high
-        self.properties["shape"] = out_type.shape_str
 
     def set_properties(self, properties: dict[str, PropertyDataType]):
         low = self._low

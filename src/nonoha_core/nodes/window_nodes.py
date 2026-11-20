@@ -133,12 +133,25 @@ class WindowNode(BaseNode):
             outputs={"window": ""},
         )
 
+    PROPERTIES = {
+        "size": {
+            "description": "Window length (samples)",
+            "data_type": "i32",
+            "default_value": 1024,
+        },
+        "window": {
+            "description": "Window function (e.g. 'hann', 'blackman')",
+            "data_type": "str",
+            "default_value": "hann",
+        },
+    }
+
     def __init__(self, name: str):
         super().__init__(name, "Window")
 
-        size = 1024
+        size = int(self.properties["size"])
         # blackman, hann
-        window_name = "hann"
+        window_name = str(self.properties["window"])
         window = _make_window(window_name, size)
 
         output_window = StaticTypeOutputPort(
@@ -151,9 +164,6 @@ class WindowNode(BaseNode):
         self._output_window = output_window
 
         self.outputs[output_window.name] = output_window
-
-        self.properties["size"] = size
-        self.properties["window"] = window_name
 
         output_window.dispatch([window[np.newaxis, :]])
 

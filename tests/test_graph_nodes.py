@@ -12,6 +12,12 @@ from nonoha_core.port import StaticTypeInputPort, StaticTypeOutputPort
 from nonoha_core.data_type import DataType, PortValueType
 
 
+def _proxied_inputs(proxy: GraphProxyNode) -> set[str]:
+    """The inputs that mirror the target graph (the proxy's own `@graph_name` port aside)."""
+    assert "@graph_name" in proxy.inputs
+    return {name for name in proxy.inputs if not name.startswith("@")}
+
+
 class DoubleNode(BaseNode):
     """Test node that doubles its input."""
 
@@ -74,7 +80,7 @@ def test_registry_registration_without_flow():
     node = registry.create_node("GraphProxy", "proxy_1")
 
     assert node.properties["graph_name"] == ""
-    assert node.inputs == {}
+    assert _proxied_inputs(node) == set()
     assert node.outputs == {}
 
 
@@ -89,7 +95,7 @@ def test_register_nodes_has_no_duplicates():
 def test_proxy_mirrors_target_ports():
     _, target, _, proxy = make_proxy_setup()
 
-    assert set(proxy.inputs.keys()) == {"in"}
+    assert _proxied_inputs(proxy) == {"in"}
     assert set(proxy.outputs.keys()) == {"out"}
     assert proxy.inputs["in"].value_type_list == target.inputs["in"].value_type_list
     assert proxy.outputs["out"].value_type_list == target.outputs["out"].value_type_list
@@ -136,7 +142,7 @@ def test_proxy_rebinds_to_other_graph():
 
     proxy.set_properties({"graph_name": "other"})
 
-    assert set(proxy.inputs.keys()) == {"x"}
+    assert _proxied_inputs(proxy) == {"x"}
     assert set(proxy.outputs.keys()) == {"y"}
     # Old target dispatches no longer reach the proxy
     received: list[list] = []
@@ -150,7 +156,7 @@ def test_proxy_missing_graph_clears_ports_without_raise():
 
     proxy.set_properties({"graph_name": "no_such_graph"})
 
-    assert proxy.inputs == {}
+    assert _proxied_inputs(proxy) == set()
     assert proxy.outputs == {}
 
 
@@ -161,7 +167,7 @@ def test_proxy_without_flow_stays_unbound():
 
     proxy.set_properties({"graph_name": "target"})
 
-    assert proxy.inputs == {}
+    assert _proxied_inputs(proxy) == set()
     assert proxy.outputs == {}
 
 

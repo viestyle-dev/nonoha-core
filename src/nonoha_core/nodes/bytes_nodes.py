@@ -35,10 +35,18 @@ class BytesValueNode(BaseNode):
             outputs={"bytes": ""},
         )
 
+    PROPERTIES = {
+        "length": {
+            "description": "Length (bytes)",
+            "data_type": "i32",
+            "default_value": 512,
+        },
+    }
+
     def __init__(self, name: str):
         super().__init__(name, "BytesValue")
 
-        length = 512
+        length = int(self.properties["length"])
 
         output_bytes = StaticTypeOutputPort(
             "bytes", [PortValueType(DataType.Uint8, (length,))]
@@ -48,8 +56,6 @@ class BytesValueNode(BaseNode):
         self._output_bytes = output_bytes
 
         self.outputs[output_bytes.name] = output_bytes
-
-        self.properties["length"] = length
 
         output_bytes.dispatch([np.zeros((1, length), dtype=np.uint8)])
         # output_bytes.dispatch([np.ones((1, length), dtype=np.uint8)])
@@ -99,12 +105,30 @@ class BytesInplaceInsertNode(BaseNode):
             outputs={"bytes": ""},
         )
 
+    PROPERTIES = {
+        "length": {
+            "description": "Length of the array (bytes)",
+            "data_type": "i32",
+            "default_value": 512,
+        },
+        "offset": {
+            "description": "Offset of the insertion (bytes)",
+            "data_type": "i32",
+            "default_value": 0,
+        },
+        "insert_length": {
+            "description": "Length of the inserted bytes",
+            "data_type": "i32",
+            "default_value": 4,
+        },
+    }
+
     def __init__(self, name: str):
         super().__init__(name, "BytesInplaceInsert")
 
-        length = 512
-        offset = 0
-        insert_length = 4
+        length = int(self.properties["length"])
+        offset = int(self.properties["offset"])
+        insert_length = int(self.properties["insert_length"])
 
         input_in = StaticTypeInputPort(
             "in",
@@ -129,10 +153,6 @@ class BytesInplaceInsertNode(BaseNode):
 
         self.inputs[input_in.name] = input_in
         self.outputs[output_bytes.name] = output_bytes
-
-        self.properties["length"] = length
-        self.properties["offset"] = offset
-        self.properties["insert_length"] = insert_length
 
     def set_properties(self, properties: dict[str, PropertyDataType]):
         length = self._length
@@ -218,11 +238,24 @@ class ToBytesNode(BaseNode):
             outputs={"bytes": ""},
         )
 
+    PROPERTIES = {
+        "in_type": {
+            "description": "Input type (e.g. 'f32', 'f32[3]')",
+            "data_type": "str",
+            "default_value": "f32[4]",
+        },
+        "is_little_endian": {
+            "description": "Use little-endian byte order",
+            "data_type": "bool",
+            "default_value": False,
+        },
+    }
+
     def __init__(self, name: str):
         super().__init__(name, "ToBytes")
 
-        in_type = PortValueType(DataType.Float32, (4,))
-        is_little_endian = False
+        in_type = name_to_port_value_type(str(self.properties["in_type"]))
+        is_little_endian = bool(self.properties["is_little_endian"])
 
         input_in = StaticTypeInputPort("in", [in_type])
         output_bytes = StaticTypeOutputPort(
@@ -243,9 +276,6 @@ class ToBytesNode(BaseNode):
 
         self.inputs[input_in.name] = input_in
         self.outputs[output_bytes.name] = output_bytes
-
-        self.properties["in_type"] = in_type.name
-        self.properties["is_little_endian"] = is_little_endian
 
     def _get_expected_output_length(self, value_type: PortValueType) -> int:
         match value_type.data_type:

@@ -45,12 +45,30 @@ class PackbitsNode(BaseNode):
     _bitorder: BitOrder
     _axis: int
 
+    PROPERTIES = {
+        "in_type": {
+            "description": "Input type (e.g. 'f32', 'f32[3]')",
+            "data_type": "str",
+            "default_value": "u8[8]",
+        },
+        "axis": {
+            "description": "Axis along which to pack (0 = batch dimension)",
+            "data_type": "i32",
+            "default_value": 1,
+        },
+        "bitorder": {
+            "description": "Bit order: 'big' or 'little'",
+            "data_type": "str",
+            "default_value": "big",
+        },
+    }
+
     def __init__(self, name: str):
         super().__init__(name, "Packbits")
 
-        in_type = PortValueType(DataType.Uint8, (8,))
-        axis = 1
-        bitorder: BitOrder = "big"
+        in_type = name_to_port_value_type(str(self.properties["in_type"]))
+        axis = int(self.properties["axis"])
+        bitorder: BitOrder = str(self.properties["bitorder"])
 
         out_type = self._get_out_type(in_type, axis)
 
@@ -68,10 +86,6 @@ class PackbitsNode(BaseNode):
 
         self.inputs[input_in.name] = input_in
         self.outputs[output_out.name] = output_out
-
-        self.properties["in_type"] = in_type.name
-        self.properties["axis"] = axis
-        self.properties["bitorder"] = bitorder
 
     @staticmethod
     def _get_out_type(in_type: PortValueType, axis: int) -> PortValueType:

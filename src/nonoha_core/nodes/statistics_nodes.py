@@ -28,11 +28,24 @@ class MeanNode(BaseNode):
             outputs={"out": ""},
         )
 
+    PROPERTIES = {
+        "in_type": {
+            "description": "Input type (e.g. 'f32', 'f32[3]')",
+            "data_type": "str",
+            "default_value": "f32",
+        },
+        "axis": {
+            "description": "Axis to reduce (0 = batch dimension)",
+            "data_type": "i32",
+            "default_value": 0,
+        },
+    }
+
     def __init__(self, name: str):
         super().__init__(name, "Mean")
 
-        in_type = PortValueType(DataType.Float32)
-        axis: int | None = 0
+        in_type = name_to_port_value_type(str(self.properties["in_type"]))
+        axis: int | None = int(self.properties["axis"])
         out_type = self._get_out_type(in_type, axis)
 
         input_in = StaticTypeInputPort("in", [in_type])
@@ -47,9 +60,6 @@ class MeanNode(BaseNode):
 
         self.inputs[input_in.name] = input_in
         self.outputs[output_out.name] = output_out
-
-        self.properties["in_type"] = in_type.name
-        self.properties["axis"] = axis
 
     def _get_out_type(self, in_type: PortValueType, axis: int | None) -> PortValueType:
         if axis is None:
@@ -127,10 +137,18 @@ class IncrementalMeanNode(BaseNode):
             outputs={"out": ""},
         )
 
+    PROPERTIES = {
+        "in_type": {
+            "description": "Input type (e.g. 'f32', 'f32[3]')",
+            "data_type": "str",
+            "default_value": "f32",
+        },
+    }
+
     def __init__(self, name: str):
         super().__init__(name, "IncrementalMean")
 
-        in_type = PortValueType(DataType.Float32)
+        in_type = name_to_port_value_type(str(self.properties["in_type"]))
 
         input_in = StaticTypeInputPort("in", [in_type])
         input_in.subscribe(id(self), self._on_input_in)
@@ -154,8 +172,6 @@ class IncrementalMeanNode(BaseNode):
         self.inputs[input_in.name] = input_in
         self.inputs[input_reset.name] = input_reset
         self.outputs[output_out.name] = output_out
-
-        self.properties["in_type"] = in_type.name
 
     def set_properties(self, properties: dict[str, PropertyDataType]):
         # 1. Extract properties

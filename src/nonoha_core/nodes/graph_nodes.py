@@ -49,15 +49,21 @@ class GraphProxyNode(BaseNode):
             outputs={},
         )
 
+    PROPERTIES = {
+        "graph_name": {
+            "description": "Name of the graph to run",
+            "data_type": "str",
+            "default_value": "",
+        },
+    }
+
     def __init__(self, name: str):
         super().__init__(name, "GraphProxy")
 
-        graph_name: str = ""
+        graph_name: str = str(self.properties["graph_name"])
 
         self._graph: BaseNodeGraph | None = None
         self._graph_name = graph_name
-
-        self.properties["graph_name"] = graph_name
 
     def set_properties(self, properties: dict[str, PropertyDataType]):
         if "graph_name" in properties:
@@ -105,6 +111,10 @@ class GraphProxyNode(BaseNode):
         # * When the target graph flushes, flush this node's parent graph
         self._graph = graph
 
+    def _proxied_input_names(self) -> list[str]:
+        """The inputs that mirror the target graph's (the node's own property ports are not)."""
+        return [name for name in self.inputs if not name.startswith(self.PROPERTY_PORT_PREFIX)]
+
     def _clear_all_ports(self):
         """Clear all dynamic ports with proper disconnection."""
         # Unsubscribe from graph outputs
@@ -113,22 +123,22 @@ class GraphProxyNode(BaseNode):
                 if name in self._graph.outputs:
                     self._graph.outputs[name].unsubscribe(id(self))
 
+        proxied = self._proxied_input_names()
         if self.parent_graph is not None:
-            for port in self.inputs.values():
-                self.parent_graph.disconnect_all_from_node_input(self.name, port.name)
+            for name in proxied:
+                self.parent_graph.disconnect_all_from_node_input(self.name, name)
             for port in self.outputs.values():
                 self.parent_graph.disconnect_all_from_node_output(self.name, port.name)
 
-        for port in self.inputs.values():
-            port.unsubscribe(id(self))
+        for name in proxied:
+            self.inputs.pop(name).unsubscribe(id(self))
 
-        self.inputs = {}
         self.outputs = {}
 
     def _sync_inputs(self, graph: BaseNodeGraph):
         """Sync input ports with differential update, preserving compatible edges."""
         target_inputs = {n: p.value_type_list for n, p in graph.inputs.items()}
-        current_names = set(self.inputs.keys())
+        current_names = set(self._proxied_input_names())
         target_names = set(target_inputs.keys())
 
         # Remove ports that no longer exist
@@ -271,21 +281,32 @@ class GraphPropertiesChangedNode(BaseNode):
             outputs={"properties": ""},
         )
 
+    PROPERTIES = {
+        "selector": {
+            "description": "Comma-separated names of the graph properties to emit",
+            "data_type": "str",
+            "default_value": "property_name",
+        },
+        "value_type_list": {
+            "description": "Comma-separated value types, one per selected property",
+            "data_type": "str",
+            "default_value": "i32",
+        },
+    }
+
     def __init__(self, name: str):
         super().__init__(name, "GraphPropertiesChanged")
 
-        self._selector: list[str] = ["property_name"]
-        self._value_type_list: list[PortValueType] = [PortValueType(DataType.Int32)]
+        self._selector: list[str] = str(self.properties["selector"]).split(",")
+        self._value_type_list: list[PortValueType] = [
+            name_to_port_value_type(name)
+            for name in str(self.properties["value_type_list"]).split(",")
+        ]
 
         output_properties = StaticTypeOutputPort("properties", self._value_type_list)
         self._output_properties = output_properties
 
         self.outputs[output_properties.name] = output_properties
-
-        self.properties["selector"] = ",".join(self._selector)
-        self.properties["value_type_list"] = ",".join(
-            [t.name for t in self._value_type_list]
-        )
 
         self._warned_missing_keys: set[str] = set()
         self._warned_cast_keys: set[str] = set()

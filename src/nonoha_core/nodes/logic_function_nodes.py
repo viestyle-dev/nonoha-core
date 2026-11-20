@@ -34,10 +34,21 @@ class EqualNode(BaseNode):
             outputs={"out": ""},
         )
 
+    PROPERTIES = {
+        "in_types": {
+            "description": "Comma-separated input types (e.g. 'f32,f32')",
+            "data_type": "str",
+            "default_value": "f32,f32",
+        },
+    }
+
     def __init__(self, name: str):
         super().__init__(name, "Equal")
 
-        in_types = [PortValueType(DataType.Float32), PortValueType(DataType.Float32)]
+        in_types = [
+            name_to_port_value_type(name.strip())
+            for name in str(self.properties["in_types"]).split(",")
+        ]
         out_type = self._get_out_type(in_types)
 
         input_in = StaticTypeInputPort("in", in_types)
@@ -51,8 +62,6 @@ class EqualNode(BaseNode):
 
         self.inputs[input_in.name] = input_in
         self.outputs[output_out.name] = output_out
-
-        self.properties["in_types"] = ",".join([in_type.name for in_type in in_types])
 
     def _get_out_type(self, in_types: list[PortValueType]):
         if len(in_types) != 2:
@@ -111,10 +120,21 @@ class NotEqualNode(BaseNode):
             outputs={"out": ""},
         )
 
+    PROPERTIES = {
+        "in_types": {
+            "description": "Comma-separated input types (e.g. 'f32,f32')",
+            "data_type": "str",
+            "default_value": "f32,f32",
+        },
+    }
+
     def __init__(self, name: str):
         super().__init__(name, "NotEqual")
 
-        in_types = [PortValueType(DataType.Float32), PortValueType(DataType.Float32)]
+        in_types = [
+            name_to_port_value_type(name.strip())
+            for name in str(self.properties["in_types"]).split(",")
+        ]
         out_type = self._get_out_type(in_types)
 
         input_in = StaticTypeInputPort("in", in_types)
@@ -128,8 +148,6 @@ class NotEqualNode(BaseNode):
 
         self.inputs[input_in.name] = input_in
         self.outputs[output_out.name] = output_out
-
-        self.properties["in_types"] = ",".join([in_type.name for in_type in in_types])
 
     def _get_out_type(self, in_types: list[PortValueType]):
         if len(in_types) != 2:
@@ -194,10 +212,21 @@ class LessNode(BaseNode):
             outputs={"out": ""},
         )
 
+    PROPERTIES = {
+        "in_types": {
+            "description": "Comma-separated input types (e.g. 'f32,f32')",
+            "data_type": "str",
+            "default_value": "f32,f32",
+        },
+    }
+
     def __init__(self, name: str):
         super().__init__(name, "Less")
 
-        in_types = [PortValueType(DataType.Float32), PortValueType(DataType.Float32)]
+        in_types = [
+            name_to_port_value_type(name.strip())
+            for name in str(self.properties["in_types"]).split(",")
+        ]
         out_type = self._get_out_type(in_types)
 
         input_in = StaticTypeInputPort("in", in_types)
@@ -211,8 +240,6 @@ class LessNode(BaseNode):
 
         self.inputs[input_in.name] = input_in
         self.outputs[output_out.name] = output_out
-
-        self.properties["in_types"] = ",".join([in_type.name for in_type in in_types])
 
     def _get_out_type(self, in_types: list[PortValueType]):
         if len(in_types) != 2:
@@ -276,10 +303,21 @@ class GreaterNode(BaseNode):
             outputs={"out": ""},
         )
 
+    PROPERTIES = {
+        "in_types": {
+            "description": "Comma-separated input types (e.g. 'f32,f32')",
+            "data_type": "str",
+            "default_value": "f32,f32",
+        },
+    }
+
     def __init__(self, name: str):
         super().__init__(name, "Greater")
 
-        in_types = [PortValueType(DataType.Float32), PortValueType(DataType.Float32)]
+        in_types = [
+            name_to_port_value_type(name.strip())
+            for name in str(self.properties["in_types"]).split(",")
+        ]
         out_type = self._get_out_type(in_types)
 
         input_in = StaticTypeInputPort("in", in_types)
@@ -293,8 +331,6 @@ class GreaterNode(BaseNode):
 
         self.inputs[input_in.name] = input_in
         self.outputs[output_out.name] = output_out
-
-        self.properties["in_types"] = ",".join([in_type.name for in_type in in_types])
 
     def _get_out_type(self, in_types: list[PortValueType]):
         if len(in_types) != 2:
@@ -368,15 +404,43 @@ class WithinRangeNode(BaseNode):
             outputs={"out": ""},
         )
 
+    PROPERTIES = {
+        "x_type": {
+            "description": "Type of x (e.g. 'f32', 'f32[128]')",
+            "data_type": "str",
+            "default_value": "f32",
+        },
+        "lower_type": {
+            "description": "Type of the lower bound",
+            "data_type": "str",
+            "default_value": "f32",
+        },
+        "upper_type": {
+            "description": "Type of the upper bound",
+            "data_type": "str",
+            "default_value": "f32",
+        },
+        "inclusive_lower": {
+            "description": "Include the lower bound",
+            "data_type": "bool",
+            "default_value": False,
+        },
+        "inclusive_upper": {
+            "description": "Include the upper bound",
+            "data_type": "bool",
+            "default_value": False,
+        },
+    }
+
     def __init__(self, name: str):
         super().__init__(name, "WithinRange")
 
-        inclusive_lower = False
-        inclusive_upper = False
+        inclusive_lower = bool(self.properties["inclusive_lower"])
+        inclusive_upper = bool(self.properties["inclusive_upper"])
 
-        x_type = PortValueType(DataType.Float32)
-        upper_type = PortValueType(DataType.Float32)
-        lower_type = PortValueType(DataType.Float32)
+        x_type = name_to_port_value_type(str(self.properties["x_type"]))
+        upper_type = name_to_port_value_type(str(self.properties["upper_type"]))
+        lower_type = name_to_port_value_type(str(self.properties["lower_type"]))
         out_type = self._get_out_type(x_type, lower_type, upper_type)
 
         input_in = StaticTypeInputPort(
@@ -394,12 +458,6 @@ class WithinRangeNode(BaseNode):
 
         self.inputs[input_in.name] = input_in
         self.outputs[output_out.name] = output_out
-
-        self.properties["x_type"] = x_type.name
-        self.properties["lower_type"] = lower_type.name
-        self.properties["upper_type"] = upper_type.name
-        self.properties["inclusive_lower"] = inclusive_lower
-        self.properties["inclusive_upper"] = inclusive_upper
 
     def _get_out_type(
         self,
@@ -516,10 +574,21 @@ class LogicalAndNode(BaseNode):
             outputs={"out": ""},
         )
 
+    PROPERTIES = {
+        "in_types": {
+            "description": "Comma-separated input types (e.g. 'f32,f32')",
+            "data_type": "str",
+            "default_value": "bool,bool",
+        },
+    }
+
     def __init__(self, name: str):
         super().__init__(name, "LogicalAnd")
 
-        in_types = [PortValueType(DataType.Bool), PortValueType(DataType.Bool)]
+        in_types = [
+            name_to_port_value_type(name.strip())
+            for name in str(self.properties["in_types"]).split(",")
+        ]
         out_type = self._get_out_type(in_types)
 
         input_in = StaticTypeInputPort("in", in_types)
@@ -533,9 +602,6 @@ class LogicalAndNode(BaseNode):
 
         self.inputs[input_in.name] = input_in
         self.outputs[output_out.name] = output_out
-
-        self.properties["in_types"] = ",".join([in_type.name for in_type in in_types])
-        in_types = [PortValueType(DataType.Bool)]
 
     def _get_out_type(self, in_types: list[PortValueType]):
         if len(in_types) < 2:
@@ -600,10 +666,21 @@ class LogicalOrNode(BaseNode):
             outputs={"out": ""},
         )
 
+    PROPERTIES = {
+        "in_types": {
+            "description": "Comma-separated input types (e.g. 'f32,f32')",
+            "data_type": "str",
+            "default_value": "bool,bool",
+        },
+    }
+
     def __init__(self, name: str):
         super().__init__(name, "LogicalOr")
 
-        in_types = [PortValueType(DataType.Bool), PortValueType(DataType.Bool)]
+        in_types = [
+            name_to_port_value_type(name.strip())
+            for name in str(self.properties["in_types"]).split(",")
+        ]
         out_type = self._get_out_type(in_types)
 
         input_in = StaticTypeInputPort("in", in_types)
@@ -617,9 +694,6 @@ class LogicalOrNode(BaseNode):
 
         self.inputs[input_in.name] = input_in
         self.outputs[output_out.name] = output_out
-
-        self.properties["in_types"] = ",".join([in_type.name for in_type in in_types])
-        in_types = [PortValueType(DataType.Bool)]
 
     def _get_out_type(self, in_types: list[PortValueType]):
         if len(in_types) < 2:
@@ -684,10 +758,18 @@ class LogicalNotNode(BaseNode):
             outputs={"out": ""},
         )
 
+    PROPERTIES = {
+        "in_type": {
+            "description": "Input type (e.g. 'f32', 'f32[3]')",
+            "data_type": "str",
+            "default_value": "bool",
+        },
+    }
+
     def __init__(self, name: str):
         super().__init__(name, "LogicalNot")
 
-        in_type = PortValueType(DataType.Bool)
+        in_type = name_to_port_value_type(str(self.properties["in_type"]))
         out_type = in_type
         input_in = StaticTypeInputPort("in", [in_type])
         output_out = StaticTypeOutputPort("out", [out_type])
@@ -698,8 +780,6 @@ class LogicalNotNode(BaseNode):
         self._output_out = output_out
         self.inputs[input_in.name] = input_in
         self.outputs[output_out.name] = output_out
-
-        self.properties["in_type"] = in_type.name
 
     def set_properties(self, properties: dict[str, PropertyDataType]):
         in_type = self._in_type
@@ -749,11 +829,24 @@ class AllNode(BaseNode):
             outputs={"out": ""},
         )
 
+    PROPERTIES = {
+        "in_type": {
+            "description": "Input type (e.g. 'f32', 'f32[3]')",
+            "data_type": "str",
+            "default_value": "bool[2]",
+        },
+        "axis": {
+            "description": "Axis to reduce (0 = batch dimension)",
+            "data_type": "i32",
+            "default_value": 1,
+        },
+    }
+
     def __init__(self, name: str):
         super().__init__(name, "All")
 
-        axis: int | None = 1
-        in_type = PortValueType(DataType.Bool, shape=(2,))
+        axis: int | None = int(self.properties["axis"])
+        in_type = name_to_port_value_type(str(self.properties["in_type"]))
         out_type = self._get_out_type(in_type, axis)
 
         input_in = StaticTypeInputPort("in", [in_type])
@@ -766,9 +859,6 @@ class AllNode(BaseNode):
         self._output_out = output_out
         self.inputs[input_in.name] = input_in
         self.outputs[output_out.name] = output_out
-
-        self.properties["in_type"] = in_type.name
-        self.properties["axis"] = axis
 
     def _get_out_type(self, in_type: PortValueType, axis: int | None):
         if axis is None:
@@ -846,11 +936,24 @@ class AnyNode(BaseNode):
             outputs={"out": ""},
         )
 
+    PROPERTIES = {
+        "in_type": {
+            "description": "Input type (e.g. 'f32', 'f32[3]')",
+            "data_type": "str",
+            "default_value": "bool[2]",
+        },
+        "axis": {
+            "description": "Axis to reduce (0 = batch dimension)",
+            "data_type": "i32",
+            "default_value": 1,
+        },
+    }
+
     def __init__(self, name: str):
         super().__init__(name, "Any")
 
-        axis: int | None = 1
-        in_type = PortValueType(DataType.Bool, shape=(2,))
+        axis: int | None = int(self.properties["axis"])
+        in_type = name_to_port_value_type(str(self.properties["in_type"]))
         out_type = self._get_out_type(in_type, axis)
 
         input_in = StaticTypeInputPort("in", [in_type])
@@ -863,9 +966,6 @@ class AnyNode(BaseNode):
         self._output_out = output_out
         self.inputs[input_in.name] = input_in
         self.outputs[output_out.name] = output_out
-
-        self.properties["in_type"] = in_type.name
-        self.properties["axis"] = axis
 
     def _get_out_type(self, in_type: PortValueType, axis: int | None):
         if axis is None:

@@ -11,8 +11,6 @@ from nonoha_core.port import (
 )
 from nonoha_core.node import BaseNode, NodeDoc, replace_node_input_port, replace_node_output_port
 from nonoha_core.data_type import (
-    DataType,
-    PortValueType,
     PropertyDataType,
     data_type_to_numpy_dtype,
     name_to_port_value_type,
@@ -31,15 +29,36 @@ class PureScriptNode(BaseNode):
             outputs={"out": ""},
         )
 
+    PROPERTIES = {
+        "source": {
+            "description": "Python source of the script",
+            "data_type": "str",
+            "default_value": "",
+        },
+        "in_value_type_list": {
+            "description": "Comma-separated input value types",
+            "data_type": "str",
+            "default_value": "f32,f32",
+        },
+        "out_value_type_list": {
+            "description": "Comma-separated output value types",
+            "data_type": "str",
+            "default_value": "f32",
+        },
+    }
+
     def __init__(self, name: str):
         super().__init__(name, "PureScript")
 
-        source: str = ""
+        source: str = str(self.properties["source"])
         in_value_type_list = [
-            PortValueType(DataType.Float32),
-            PortValueType(DataType.Float32),
+            name_to_port_value_type(name)
+            for name in str(self.properties["in_value_type_list"]).split(",")
         ]
-        out_value_type_list = [PortValueType(DataType.Float32)]
+        out_value_type_list = [
+            name_to_port_value_type(name)
+            for name in str(self.properties["out_value_type_list"]).split(",")
+        ]
 
         input_in = StaticTypeInputPort("values", in_value_type_list)
         output_out = StaticTypeOutputPort("out", out_value_type_list)
@@ -73,14 +92,6 @@ class PureScriptNode(BaseNode):
 
         self.inputs[input_in.name] = input_in
         self.outputs[output_out.name] = output_out
-
-        self.properties["source"] = source
-        self.properties["in_value_type_list"] = ",".join(
-            [value_type.name for value_type in in_value_type_list]
-        )
-        self.properties["out_value_type_list"] = ",".join(
-            [value_type.name for value_type in out_value_type_list]
-        )
 
     def set_properties(self, properties: dict[str, PropertyDataType]):
         # 1. Extract properties

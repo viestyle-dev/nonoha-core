@@ -173,6 +173,14 @@ class TimeStringifyNode(BaseNode):
             outputs={"string": ""},
         )
 
+    PROPERTIES = {
+        "format_str": {
+            "description": "Time format (strftime syntax)",
+            "data_type": "str",
+            "default_value": "%Y-%m-%d %H:%M:%S.%f",
+        },
+    }
+
     def __init__(self, name: str):
         super().__init__(name, "TimeStringify")
 
@@ -181,15 +189,13 @@ class TimeStringifyNode(BaseNode):
 
         output_string = StaticTypeOutputPort("string", [PortValueType(DataType.String)])
 
-        format_str = "%Y-%m-%d %H:%M:%S.%f"
+        format_str = str(self.properties["format_str"])
         self._format_str = format_str
 
         self._output_string = output_string
 
         self.inputs[input_time.name] = input_time
         self.outputs[output_string.name] = output_string
-
-        self.properties["format_str"] = format_str
 
     def set_properties(self, properties: dict[str, PropertyDataType]):
         format_str = self._format_str
@@ -231,6 +237,19 @@ class TimeDailyRangeWithinNode(BaseNode):
             outputs={"in_range": ""},
         )
 
+    PROPERTIES = {
+        "start_time": {
+            "description": "Start of the range (HH:MM:SS)",
+            "data_type": "str",
+            "default_value": "09:00:00",
+        },
+        "end_time": {
+            "description": "End of the range (HH:MM:SS)",
+            "data_type": "str",
+            "default_value": "18:00:00",
+        },
+    }
+
     def __init__(self, name: str):
         super().__init__(name, "TimeDailyRangeWithin")
 
@@ -249,8 +268,8 @@ class TimeDailyRangeWithinNode(BaseNode):
             "in_range", [PortValueType(DataType.Bool)]
         )
 
-        self._start_time_str = "09:00:00"
-        self._end_time_str = "18:00:00"
+        self._start_time_str = str(self.properties["start_time"])
+        self._end_time_str = str(self.properties["end_time"])
 
         # Pre-calculated time values in seconds for comparison
         self._start_time_seconds = 32400  # 09:00:00 = 9 * 3600
@@ -260,9 +279,6 @@ class TimeDailyRangeWithinNode(BaseNode):
 
         self.inputs[input_time.name] = input_time
         self.outputs[output_in_range.name] = output_in_range
-
-        self.properties["start_time"] = self._start_time_str
-        self.properties["end_time"] = self._end_time_str
 
     def set_properties(self, properties: dict[str, PropertyDataType]):
         start_time_str = self._start_time_str

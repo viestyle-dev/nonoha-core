@@ -30,11 +30,24 @@ class EmaFilterNode(BaseNode):
             outputs={"series": ""},
         )
 
+    PROPERTIES = {
+        "in_type": {
+            "description": "Input type (e.g. 'f32', 'f32[3]')",
+            "data_type": "str",
+            "default_value": "f32",
+        },
+        "alpha": {
+            "description": "Smoothing factor (0 < alpha <= 1)",
+            "data_type": "f64",
+            "default_value": 0.1,
+        },
+    }
+
     def __init__(self, name: str):
         super().__init__(name, "EmaFilter")
 
-        in_type = PortValueType(DataType.Float32)
-        alpha = 0.1
+        in_type = name_to_port_value_type(str(self.properties["in_type"]))
+        alpha = float(self.properties["alpha"])
 
         input_series = StaticTypeInputPort("series", [in_type])
         output_series = StaticTypeOutputPort("series", [in_type])
@@ -55,9 +68,6 @@ class EmaFilterNode(BaseNode):
         self.inputs[input_series.name] = input_series
         self.inputs[input_reset.name] = input_reset
         self.outputs[output_series.name] = output_series
-
-        self.properties["in_type"] = in_type.name
-        self.properties["alpha"] = alpha
 
     def set_properties(self, properties: dict[str, PropertyDataType]):
         alpha = self._alpha

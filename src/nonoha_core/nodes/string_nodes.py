@@ -27,11 +27,27 @@ class StringFormatNode(BaseNode):
             outputs={"formatted": ""},
         )
 
+    PROPERTIES = {
+        "format_str": {
+            "description": "Format string (str.format syntax)",
+            "data_type": "str",
+            "default_value": "record,{},{:.2f}",
+        },
+        "in_types": {
+            "description": "Comma-separated input types (e.g. 'f32,f32')",
+            "data_type": "str",
+            "default_value": "str, f32",
+        },
+    }
+
     def __init__(self, name: str):
         super().__init__(name, "StringFormat")
 
-        format_str: str = "record,{},{:.2f}"
-        in_types = [PortValueType(DataType.String), PortValueType(DataType.Float32)]
+        format_str: str = str(self.properties["format_str"])
+        in_types = [
+            name_to_port_value_type(t.strip())
+            for t in str(self.properties["in_types"]).split(",")
+        ]
 
         input_in = StaticTypeInputPort("in", in_types)
         input_in.subscribe(id(self), self._on_input_in)
@@ -46,9 +62,6 @@ class StringFormatNode(BaseNode):
 
         self.inputs[input_in.name] = input_in
         self.outputs[output_formatted.name] = output_formatted
-
-        self.properties["format_str"] = format_str
-        self.properties["in_types"] = ", ".join([t.name for t in in_types])
 
     def set_properties(self, properties: dict[str, PropertyDataType]):
         # 1. Extract and validate properties

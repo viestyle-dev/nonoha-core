@@ -10,41 +10,57 @@ Node properties are configurable parameters that can be modified through the edi
 2. **Editable** by users through the UI
 3. **Persistent** when the graph is saved
 4. **Reactive** - changes trigger node updates
+5. **Connectable** - it gets an input port (`@name`), so another node's output can set it
 
 ## Implementation Steps
 
 Follow these steps to add a new property to an existing node. We'll use the `MeanNode` from `statistics_nodes.py` as a reference for the typical pattern.
 
-### Step 1: Add Property Variable to Constructor
+### Step 1: Declare the Property in PROPERTIES
 
-Add your new property as a local variable in the node's `__init__` method:
+Declare every property in the class's `PROPERTIES`, with these three fields:
 
 ```python
 class MeanNode(BaseNode):
+    PROPERTIES = {
+        "in_type": {
+            "description": "Input type (e.g. 'f32', 'f32[3]')",
+            "data_type": "str",
+            "default_value": "f32",
+        },
+        "axis": {
+            "description": "Axis to reduce (0 = batch dimension)",
+            "data_type": "i32",
+            "default_value": 0,
+        },
+    }
+```
+
+- `description`: one short phrase: what it is, with its unit, format or allowed values. It is shown in the node catalog.
+- `data_type`: the type of the property's input port (see "Property Data Types"). The node gets an input port `@axis` of this type.
+- `default_value`: the initial value. `BaseNode.__init__` puts it in `self.properties`; it is the only place that states it.
+
+The order of `PROPERTIES` is the order the editor shows.
+
+### Step 2: Read the Default in the Constructor
+
+Take the initial value from `self.properties`, not from a second literal:
+
+```python
     def __init__(self, name: str):
         super().__init__(name, "Mean")
 
-        # Property variables
-        in_type = PortValueType(DataType.Float32)
-        axis: int | None = 0  # Property variable
+        in_type = name_to_port_value_type(str(self.properties["in_type"]))
+        axis: int | None = int(self.properties["axis"])
 ```
 
-### Step 2: Store Property in Instance Variables
+### Step 3: Store Property in Instance Variables
 
-Store the property value in an instance variable for internal use:
+Store the value in an instance variable for internal use (the processing path reads these, never the dictionary):
 
 ```python
         self._in_type = in_type
         self._axis = axis
-```
-
-### Step 3: Export Property to Properties Dictionary
-
-Add the property to the `self.properties` dictionary to make it visible in the editor:
-
-```python
-        self.properties["in_type"] = in_type.name
-        self.properties["axis"] = axis
 ```
 
 ### Step 4: Handle Property Updates in set_properties
@@ -118,7 +134,18 @@ Properties support the following data types as defined in `PropertyDataType`:
 - `str` - String values
 - `bool` - Boolean values
 
-Choose the appropriate type for your property and ensure consistent type conversion in `set_properties`.
+Choose the `data_type` of the property's port to match:
+
+| Property value | `data_type` |
+| --- | --- |
+| real number | `f64` (its port accepts every numeric sender) |
+| integer | `i32` (the nodes that emit integers emit `i32`) |
+| true or false | `bool` |
+| text: a type name such as `f32[3]`, a comma-separated list, a choice, a path, a format | `str` |
+
+A value that arrives through the port is a numpy scalar, so convert in `set_properties` (`int()`, `float()`, `bool()`, `str()`) before storing it: properties are saved as JSON. The type does not check values set from the editor or the API, so `set_properties` validates the range in every case.
+
+`nonoha_core._testing` has two checks for a plugin's tests: `assert_all_properties_declared(registry)` and `assert_property_ports_apply(registry)`.
 
 ## Deployment Process
 
@@ -137,7 +164,7 @@ This rebuilds and reinstalls the `nonoha-core` package with your changes.
 ## Best Practices
 
 1. **Use Descriptive Names**: Choose clear, descriptive property names
-2. **Set Reasonable Defaults**: Provide sensible default values
+2. **Set Reasonable Defaults**: Provide sensible default values, in `default_value` only
 3. **Add Validation**: Always validate property values in `set_properties`
 4. **Handle Port Updates**: When properties affect port types, recreate and replace them properly
 5. **Notify Graph**: Always call `notify_node_updated` to inform the graph of changes
