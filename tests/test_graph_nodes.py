@@ -151,6 +151,65 @@ def test_proxy_rebinds_to_other_graph():
     assert received == []
 
 
+def _ported_graph(name: str, inputs: list[str], outputs: list[str]) -> BaseNodeGraph:
+    """Graph with the given ports (f64), in the given order."""
+    graph = BaseNodeGraph(name, {})
+    value_types = [PortValueType(DataType.Float64)]
+    for port in inputs:
+        graph.add_input_port(StaticTypeInputPort(port, value_types))
+    for port in outputs:
+        graph.add_output_port(StaticTypeOutputPort(port, value_types))
+    return graph
+
+
+def test_proxy_ports_are_in_the_target_graphs_order():
+    """A client shows the proxy's ports in the order it lists them, so the
+    order is the target graph's: not a set's, which changes with every run
+    (twelve names come out in the given order by chance once in 12!)."""
+    inputs = ["frame", "start", "demand", "scene", "ai_json", "gain", "rate", "mode", "seed", "level", "hold", "bias"]
+    outputs = ["audio", "primed", "trigger", "summary", "energy", "onsets", "vectors", "count", "beta", "freqs", "psd", "notes"]
+    flow = BaseNodeFlow()
+    flow.add_graph(_ported_graph("target", inputs, outputs))
+    main = BaseNodeGraph("main", {})
+    main.set_parent_flow(flow)
+    proxy = GraphProxyNode("proxy_1")
+    main.add_node(proxy)
+
+    proxy.set_properties({"graph_name": "target"})
+
+    assert list(proxy.inputs) == ["@graph_name", *inputs]
+    assert list(proxy.outputs) == outputs
+
+
+def test_proxy_ports_follow_the_target_after_a_rebind():
+    """Rebound to a graph with more ports, the proxy lists them in that
+    graph's order (as a fresh start would), and a port both graphs have keeps
+    its connections."""
+    flow, _, main, proxy = make_proxy_setup()  # bound to "target": in -> out
+    value_types = [PortValueType(DataType.Float64)]
+    main.add_input_port(StaticTypeInputPort("a", value_types))
+    main.add_output_port(StaticTypeOutputPort("b", value_types))
+    main.connect_input_to_node("a", "proxy_1", "in")
+    main.connect_node_to_output("proxy_1", "out", "b")
+
+    wide = _ported_graph("wide", ["first", "in", "last"], ["before", "out", "after"])
+    flow.add_graph(wide)
+    received_in: list[list] = []
+    wide.inputs["in"].subscribe(1, lambda values: received_in.append(values))
+    received_b: list[list] = []
+    main.outputs["b"].subscribe(1, lambda values: received_b.append(values))
+
+    proxy.set_properties({"graph_name": "wide"})
+
+    assert list(proxy.inputs) == ["@graph_name", "first", "in", "last"]
+    assert list(proxy.outputs) == ["before", "out", "after"]
+    main.inputs["a"].dispatch([np.array([5.0], dtype=np.float64)])
+    assert len(received_in) == 1
+    wide.outputs["out"].dispatch([np.array([7.0], dtype=np.float64)])
+    assert len(received_b) == 1
+    np.testing.assert_array_equal(received_b[0][0], np.array([7.0]))
+
+
 def test_proxy_missing_graph_clears_ports_without_raise():
     _, _, _, proxy = make_proxy_setup()
 

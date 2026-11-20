@@ -136,21 +136,32 @@ class GraphProxyNode(BaseNode):
         self.outputs = {}
 
     def _sync_inputs(self, graph: BaseNodeGraph):
-        """Sync input ports with differential update, preserving compatible edges."""
+        """Sync input ports with differential update, preserving compatible edges.
+
+        The mirrored ports end up in the target graph's order, after the
+        node's own property ports. Every step goes through the ports in a
+        list's order, never a set's (that order changes with every run), so
+        what a client is shown and the order values are passed on in are the
+        same on every run, whatever was bound before.
+        """
         target_inputs = {n: p.value_type_list for n, p in graph.inputs.items()}
-        current_names = set(self._proxied_input_names())
-        target_names = set(target_inputs.keys())
+        current_names = self._proxied_input_names()
+        kept = {name for name in current_names if name in target_inputs}
 
         # Remove ports that no longer exist
-        for name in current_names - target_names:
+        for name in current_names:
+            if name in kept:
+                continue
             if self.parent_graph is not None:
                 self.parent_graph.disconnect_all_from_node_input(self.name, name)
             self.inputs[name].unsubscribe(id(self))
             del self.inputs[name]
 
         # Add new ports
-        for name in target_names - current_names:
-            port = StaticTypeInputPort(name, target_inputs[name])
+        for name, types in target_inputs.items():
+            if name in kept:
+                continue
+            port = StaticTypeInputPort(name, types)
             port.subscribe(
                 id(self),
                 lambda values, n=name: self._on_input(n, values),
@@ -158,9 +169,10 @@ class GraphProxyNode(BaseNode):
             self.inputs[name] = port
 
         # Update existing ports if types changed (replace_node_input_port preserves edges)
-        for name in current_names & target_names:
+        for name, new_types in target_inputs.items():
+            if name not in kept:
+                continue
             old_port = self.inputs[name]
-            new_types = target_inputs[name]
             if old_port.value_type_list != new_types:
                 new_port = StaticTypeInputPort(name, new_types)
                 replace_node_input_port(
@@ -171,11 +183,19 @@ class GraphProxyNode(BaseNode):
                 )
                 self.inputs[name] = new_port
 
+        # The target's order: each port moves to the end, one after the other
+        for name in target_inputs:
+            self.inputs[name] = self.inputs.pop(name)
+
     def _sync_outputs(self, graph: BaseNodeGraph):
-        """Sync output ports with differential update, cloning from graph."""
+        """Sync output ports with differential update, cloning from graph.
+
+        Like the inputs, the ports end up in the target graph's order and
+        every step follows a list's order.
+        """
         target_outputs = {n: p.value_type_list for n, p in graph.outputs.items()}
-        current_names = set(self.outputs.keys())
-        target_names = set(target_outputs.keys())
+        current_names = list(self.outputs)
+        kept = {name for name in current_names if name in target_outputs}
         old_graph = self._graph
 
         # Unsubscribe all from old graph first
@@ -185,13 +205,17 @@ class GraphProxyNode(BaseNode):
                     old_graph.outputs[name].unsubscribe(id(self))
 
         # Remove ports that no longer exist
-        for name in current_names - target_names:
+        for name in current_names:
+            if name in kept:
+                continue
             if self.parent_graph is not None:
                 self.parent_graph.disconnect_all_from_node_output(self.name, name)
             del self.outputs[name]
 
         # Add new ports (clone from graph)
-        for name in target_names - current_names:
+        for name in target_outputs:
+            if name in kept:
+                continue
             original = graph.outputs[name]
             port = StaticTypeOutputPort(name, original.value_type_list)
             self.outputs[name] = port
@@ -200,9 +224,10 @@ class GraphProxyNode(BaseNode):
                 port.dispatch(original.current_values)
 
         # Update existing ports if types changed
-        for name in current_names & target_names:
+        for name, new_types in target_outputs.items():
+            if name not in kept:
+                continue
             old_port = self.outputs[name]
-            new_types = target_outputs[name]
             if old_port.value_type_list != new_types:
                 new_port = StaticTypeOutputPort(name, new_types)
                 replace_node_output_port(self, old_port, new_port)
@@ -211,8 +236,12 @@ class GraphProxyNode(BaseNode):
                 if old_port.current_values is not None:
                     new_port.dispatch(old_port.current_values)
 
+        # The target's order: each port moves to the end, one after the other
+        for name in target_outputs:
+            self.outputs[name] = self.outputs.pop(name)
+
         # Subscribe to all outputs on new graph
-        for name in target_names:
+        for name in target_outputs:
             graph.outputs[name].subscribe(
                 id(self),
                 lambda values, n=name: self._forward_output(n, values),
