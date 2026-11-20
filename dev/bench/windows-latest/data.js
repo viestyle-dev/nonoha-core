@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795111237734,
+  "lastUpdate": 1795151852670,
   "repoUrl": "https://github.com/viestyle-dev/nonoha-core",
   "entries": {
     "nonoha-core Benchmark (windows-latest)": [
@@ -750,6 +750,156 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.0000017613884178369016",
             "extra": "mean: 6.5523767600244875 usec\nrounds: 161291"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "fivetwothreesix@gmail.com",
+            "name": "IOE",
+            "username": "ContentsViewer"
+          },
+          "committer": {
+            "email": "fivetwothreesix@gmail.com",
+            "name": "IOE",
+            "username": "ContentsViewer"
+          },
+          "distinct": true,
+          "id": "c51e63a19c23265c6ee2525dcdbd22721d3041a3",
+          "message": "Enhance node properties and initialization across various mathematical, random, script, statistics, string, time, trigonometric, and window nodes\n\n- Introduced `PROPERTIES` for nodes to define input types, shapes, and other parameters.\n- Updated constructors to initialize properties from the `PROPERTIES` dictionary.\n- Removed redundant property assignments after initialization.\n- Added tests to ensure all built-in nodes declare their properties correctly.\n- Bumped version to 1.2.0 in `uv.lock`.",
+          "timestamp": "2026-11-20T14:13:50+09:00",
+          "tree_id": "d37c6edfeffa61ad2ee83ca10195f69f0106b6b9",
+          "url": "https://github.com/viestyle-dev/nonoha-core/commit/c51e63a19c23265c6ee2525dcdbd22721d3041a3"
+        },
+        "date": 1795151847801,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benchmarks/test_endian_conversion.py::test_frombuffer_big_to_native",
+            "value": 23762.417219299437,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0000037259591895370825",
+            "extra": "mean: 42.08326075462629 usec\nrounds: 24571"
+          },
+          {
+            "name": "benchmarks/test_endian_conversion.py::test_astype_native_to_big",
+            "value": 24072.983029091734,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0000036759812962395303",
+            "extra": "mean: 41.54034416056869 usec\nrounds: 24814"
+          },
+          {
+            "name": "benchmarks/test_endian_conversion.py::test_total_cost_convert_once",
+            "value": 1980.6804174254805,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00006904584496649746",
+            "extra": "mean: 504.87700650860967 usec\nrounds: 2305"
+          },
+          {
+            "name": "benchmarks/test_node_compute.py::test_add_node",
+            "value": 594478.3061721259,
+            "unit": "iter/sec",
+            "range": "stddev: 2.3349947869283897e-7",
+            "extra": "mean: 1.6821471694048458 usec\nrounds: 64103"
+          },
+          {
+            "name": "benchmarks/test_node_compute.py::test_fft_node",
+            "value": 80055.02377751633,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000002351017581357064",
+            "extra": "mean: 12.49140844401139 usec\nrounds: 84746"
+          },
+          {
+            "name": "benchmarks/test_node_compute.py::test_values_buffer_node",
+            "value": 91.58908784710547,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0012290480688067842",
+            "extra": "mean: 10.918331249999488 msec\nrounds: 96"
+          },
+          {
+            "name": "benchmarks/test_port_dispatch.py::test_dispatch_10_callbacks",
+            "value": 1278274.714042753,
+            "unit": "iter/sec",
+            "range": "stddev: 1.740342310910681e-7",
+            "extra": "mean: 782.3044522547608 nsec\nrounds: 136987"
+          },
+          {
+            "name": "benchmarks/test_port_dispatch.py::test_dispatch_100_callbacks",
+            "value": 267491.6594964208,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0000012991571361844462",
+            "extra": "mean: 3.738434319345125 usec\nrounds: 142858"
+          },
+          {
+            "name": "benchmarks/test_port_dispatch.py::test_dispatch_large_payload",
+            "value": 1285459.7700149023,
+            "unit": "iter/sec",
+            "range": "stddev: 1.5289606008533447e-7",
+            "extra": "mean: 777.9317745500248 nsec\nrounds: 136987"
+          },
+          {
+            "name": "benchmarks/test_port_dispatch.py::test_receive_value_with_index",
+            "value": 6326050.346516827,
+            "unit": "iter/sec",
+            "range": "stddev: 2.3203826395621453e-8",
+            "extra": "mean: 158.076516186934 nsec\nrounds: 65790"
+          },
+          {
+            "name": "benchmarks/test_port_dispatch.py::test_dispatch_chain_10",
+            "value": 163925.10994850204,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000001706826967535897",
+            "extra": "mean: 6.100346678517742 usec\nrounds: 185186"
+          },
+          {
+            "name": "benchmarks/test_port_subscribe.py::test_subscribe_1000",
+            "value": 293.02248776087316,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0002465855061117663",
+            "extra": "mean: 3.4127073578600897 msec\nrounds: 299"
+          },
+          {
+            "name": "benchmarks/test_port_subscribe.py::test_unsubscribe_middle",
+            "value": 930.6680242024137,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00008079466986143855",
+            "extra": "mean: 1.0744969999984733 msec\nrounds: 100"
+          },
+          {
+            "name": "benchmarks/test_port_subscribe.py::test_subscribe_unsubscribe_cycle",
+            "value": 9923.413715647257,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00000863364731305922",
+            "extra": "mean: 100.77177357054038 usec\nrounds: 10352"
+          },
+          {
+            "name": "benchmarks/test_serialization.py::test_to_bytes_f32_small",
+            "value": 547167.9843131119,
+            "unit": "iter/sec",
+            "range": "stddev: 2.7395325026580537e-7",
+            "extra": "mean: 1.8275923092525976 usec\nrounds: 58824"
+          },
+          {
+            "name": "benchmarks/test_serialization.py::test_to_bytes_f32_large",
+            "value": 137270.69732635096,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0000012978702598549649",
+            "extra": "mean: 7.284875938399101 usec\nrounds: 144928"
+          },
+          {
+            "name": "benchmarks/test_serialization.py::test_to_bytes_multi_value",
+            "value": 167947.95968025827,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0000012253188805528932",
+            "extra": "mean: 5.954225355900807 usec\nrounds: 181819"
+          },
+          {
+            "name": "benchmarks/test_serialization.py::test_to_bytes_string",
+            "value": 189390.39912180218,
+            "unit": "iter/sec",
+            "range": "stddev: 8.699472450910508e-7",
+            "extra": "mean: 5.280098698967694 usec\nrounds: 100001"
           }
         ]
       }
