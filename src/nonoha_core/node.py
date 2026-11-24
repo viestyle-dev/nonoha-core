@@ -1047,6 +1047,50 @@ class BaseNodeGraph(BaseNode, Generic[TPersist]):
         if self._persist is not None:
             self._persist.update_edges(self._edges)
 
+    def source_values(self, node_name: str, port_name: str):
+        """The latest values the source of a node's input holds: a graph input or a node's output.
+
+        None when the input has no valid edge or its source has sent nothing yet.
+        """
+        for edge_key in self._target_port_to_edges.get(f"{node_name}.{port_name}", ()):
+            if not self._edges[edge_key].valid:
+                continue
+            source_node, source_port = edge_key[0].split(".", 1)
+            if source_node == "":
+                port = self.inputs.get(source_port)
+            else:
+                node = self.nodes.get(source_node)
+                port = node.outputs.get(source_port) if node is not None else None
+            if port is not None and port.current_values is not None:
+                return port.current_values
+        return None
+
+    def connect_invalid_edges(self, node_name: str):
+        """Try again the edges of ``node_name`` that are recorded as invalid.
+
+        For a node whose ports appear later than its edges (a GraphProxy
+        whose target was not there when the graph was loaded). An edge that
+        still cannot be made stays recorded as invalid.
+        """
+        for source_key, target_key in [key for key, edge in self._edges.items() if not edge.valid]:
+            source_node, source_port = source_key.split(".", 1)
+            target_node, target_port = target_key.split(".", 1)
+            if node_name not in (source_node, target_node):
+                continue
+            edge_key = (source_key, target_key)
+            del self._edges[edge_key]
+            self._source_port_to_edges[source_key].remove(edge_key)
+            self._target_port_to_edges[target_key].remove(edge_key)
+            try:
+                if source_node == "":
+                    self.connect_input_to_node(source_port, target_node, target_port)
+                elif target_node == "":
+                    self.connect_node_to_output(source_node, source_port, target_port)
+                else:
+                    self.connect_nodes(source_node, source_port, target_node, target_port)
+            except (KeyError, ValueError):
+                self.add_invalid_edge(source_key, target_key)
+
     def notify_node_updated(self, node: BaseNode):
         if self._persist is None:
             return
@@ -1102,6 +1146,9 @@ def replace_node_output_port(
 
 TGraph = TypeVar("TGraph", bound=BaseNodeGraph)
 
+# (graph name, the graph that was added | None when it was removed)
+GraphsChangedCallback: TypeAlias = Callable[[str, "BaseNodeGraph | None"], None]
+
 
 class BaseNodeFlow(Generic[TGraph]):
     """A named collection of graphs — the container level above the graph.
@@ -1109,10 +1156,28 @@ class BaseNodeFlow(Generic[TGraph]):
     Graphs added here receive a ``parent_flow`` back-reference, making the
     flow the resolution scope for graph-to-graph references. Holds only the
     in-memory collection and its lifecycle; insertion order is preserved.
+
+    Graphs may come and go while the flow runs: ``subscribe_graphs_changed``
+    tells who references a graph by name (GraphProxyNode) when it is added
+    or removed.
     """
 
     def __init__(self) -> None:
         self._graphs: dict[str, TGraph] = {}
+        self._graphs_changed_callbacks: dict[int, GraphsChangedCallback] = {}
+
+    def subscribe_graphs_changed(self, key: int, callback: GraphsChangedCallback):
+        """Register a callback fired after a graph is added (name, graph) and
+        when one is removed (name, None), before the removed graph is finalized."""
+        self._graphs_changed_callbacks[key] = callback
+
+    def unsubscribe_graphs_changed(self, key: int):
+        self._graphs_changed_callbacks.pop(key, None)
+
+    def _notify_graphs_changed(self, name: str, graph: "BaseNodeGraph | None"):
+        # A copy: a callback may bind ports, and with them (un)subscribe others
+        for callback in list(self._graphs_changed_callbacks.values()):
+            callback(name, graph)
 
     @property
     def graphs(self) -> dict[str, TGraph]:
@@ -1135,6 +1200,7 @@ class BaseNodeFlow(Generic[TGraph]):
             raise ValueError(f"Graph name already exists in flow: {graph.name}")
         self._graphs[graph.name] = graph
         graph.set_parent_flow(self)
+        self._notify_graphs_changed(graph.name, graph)
 
     def remove_graph(self, name: str) -> TGraph | None:
         """Remove a graph by name, finalizing it and clearing parent_flow.
@@ -1144,6 +1210,8 @@ class BaseNodeFlow(Generic[TGraph]):
         graph = self._graphs.pop(name, None)
         if graph is None:
             return None
+        # First: who references it lets go while its ports still exist
+        self._notify_graphs_changed(name, None)
         graph.finalize()
         graph.set_parent_flow(None)
         return graph

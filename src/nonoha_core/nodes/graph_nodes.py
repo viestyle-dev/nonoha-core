@@ -29,8 +29,16 @@ class GraphProxyNode(BaseNode):
 
     The target graph is resolved by name through
     ``self.parent_graph.parent_flow`` (see BaseNodeFlow), so the resolution
-    scope is the flow this node's graph belongs to. The target must already
-    be in the flow when ``graph_name`` is applied.
+    scope is the flow this node's graph belongs to.
+
+    The target may come and go while the flow runs. While it is not there,
+    the node keeps its ports and edges and passes nothing on; when a graph of
+    that name is added, the node binds to it (ports the new graph does not
+    have are removed with their edges) and passes on the last value each of
+    its inputs received: ports carry the latest value, so the target gets it
+    whatever the order the graphs were loaded or restarted in. A target that
+    is not in the flow when ``graph_name`` is applied is bound when it is
+    added; edges to ports that did not exist yet are then made.
 
     Note on flush propagation: this node subscribes to the target graph's
     ``flush_outputs`` and re-flushes its parent graph, but firing those
@@ -64,6 +72,7 @@ class GraphProxyNode(BaseNode):
 
         self._graph: BaseNodeGraph | None = None
         self._graph_name = graph_name
+        self._flow = None  # the flow whose graph changes this node hears
 
     def set_properties(self, properties: dict[str, PropertyDataType]):
         if "graph_name" in properties:
@@ -74,18 +83,83 @@ class GraphProxyNode(BaseNode):
             # Always rebind when graph_name is specified (allows refresh even with same name)
             flow = self.parent_graph.parent_flow if self.parent_graph else None
             graph = flow.get_graph(graph_name) if flow is not None else None
-            if graph is None:
-                logger.warning(
-                    f"{self.name}: Graph not found: {graph_name!r}"
-                    f" (flow attached: {flow is not None})"
-                )
-
-            self._bind_graph(graph)
+            renamed = graph_name != self._graph_name
             self._graph_name = graph_name
             self.properties["graph_name"] = graph_name
+            self._watch(flow)
+            if graph is not None:
+                self._bind_graph(graph)
+            elif renamed or not graph_name:
+                # Another target (or none): the old target's ports mean nothing any more
+                self._bind_graph(None)
+            else:
+                # The same target, not there now: keep the wiring for when it is back
+                self._detach()
+            if graph is None and graph_name:
+                logger.warning(
+                    f"{self.name}: Graph not found: {graph_name!r}"
+                    f" (flow attached: {flow is not None}); it is bound when it is added"
+                )
 
         if self.parent_graph is not None:
             self.parent_graph.notify_node_updated(self)
+
+    def _watch(self, flow):
+        """Hear from ``flow`` when graphs are added or removed (once per flow)."""
+        if flow is self._flow:
+            return
+        if self._flow is not None:
+            self._flow.unsubscribe_graphs_changed(id(self))
+        self._flow = flow
+        if flow is not None:
+            flow.subscribe_graphs_changed(id(self), self._on_graphs_changed)
+
+    def _on_graphs_changed(self, name: str, graph: BaseNodeGraph | None):
+        if name != self._graph_name:
+            return
+        if graph is None:
+            self._detach()
+            return
+        self._bind_graph(graph)
+        # The target was just added: its nodes start after this. Once they
+        # have, it gets the latest value of each input
+        graph.subscribe_graph_loaded(id(self), self._pass_latest)
+        if self.parent_graph is not None:
+            # Edges recorded before these ports existed
+            self.parent_graph.connect_invalid_edges(self.name)
+            self.parent_graph.notify_node_updated(self)
+
+    def _pass_latest(self, graph: BaseNodeGraph):
+        """Give the target the latest value of each input.
+
+        Ports carry the latest value: the target gets it whatever the order
+        the graphs were loaded or restarted in. An input that has received
+        nothing (its edge was made only now) takes its source's latest value.
+        Called while the target is loaded, whose loader commits the batch
+        (no flush here).
+        """
+        if graph is not self._graph:
+            return
+        for name in self._proxied_input_names():
+            target = graph.inputs.get(name)
+            if target is None:
+                continue
+            values = self.inputs[name].current_values
+            if values is None and self.parent_graph is not None:
+                values = self.parent_graph.source_values(self.name, name)
+            if values is not None:
+                target.dispatch(values)
+
+    def _detach(self):
+        """Let go of the target but keep the ports and their edges."""
+        graph = self._graph
+        if graph is None:
+            return
+        graph.unsubscribe_flush_outputs(id(self))
+        for name in self.outputs:
+            if name in graph.outputs:
+                graph.outputs[name].unsubscribe(id(self))
+        self._graph = None
 
     def _bind_graph(self, graph: BaseNodeGraph | None):
         # Unsubscribe from previous graph
@@ -272,6 +346,7 @@ class GraphProxyNode(BaseNode):
 
     def finalize(self):
         """Clean up subscriptions when node is removed."""
+        self._watch(None)
         if self._graph is not None:
             # Unsubscribe from graph's flush_outputs
             self._graph.unsubscribe_flush_outputs(id(self))

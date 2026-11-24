@@ -32,6 +32,7 @@ classDiagram
         +graphs: dict[str, BaseNodeGraph]
         +add_graph(graph: BaseNodeGraph)
         +remove_graph(name: str)
+        +subscribe_graphs_changed(key, callback)
         +get_graph(name: str)
         +finalize()
     }

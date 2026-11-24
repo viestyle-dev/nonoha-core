@@ -510,3 +510,105 @@ def test_graph_properties_changed_node_emits_all_property_types():
         assert value[0] == prop_value
     assert str(received[0][11][0]) == "hello"
 
+
+
+# -- the target comes and goes while the flow runs ---------------------------------------
+
+
+def _main_with_proxy(flow: BaseNodeFlow, target_name: str = "target"):
+    """A main graph (in the flow) with a proxy and a doubling node wired around it:
+    main.in -> proxy.in, proxy.out -> Double_1.value -> main.out (edges are tried as a loader does)."""
+    main = BaseNodeGraph("main", {})
+    main.set_parent_flow(flow)
+    proxy = GraphProxyNode("proxy_1")
+    main.add_node(proxy)
+    proxy.set_properties({"graph_name": target_name})
+    main.add_node(DoubleNode("Double_1"))
+    value_types = [PortValueType(DataType.Float64)]
+    main.add_input_port(StaticTypeInputPort("in", value_types))
+    main.add_output_port(StaticTypeOutputPort("out", value_types))
+    for connect, args, edge in (
+        (main.connect_input_to_node, ("in", "proxy_1", "in"), (".in", "proxy_1.in")),
+        (main.connect_nodes, ("proxy_1", "out", "Double_1", "value"), ("proxy_1.out", "Double_1.value")),
+    ):
+        try:
+            connect(*args)
+        except (KeyError, ValueError):
+            main.add_invalid_edge(*edge)
+    main.connect_node_to_output("Double_1", "result", "out")
+    flow.add_graph(main)
+    received: list[float] = []
+    main.outputs["out"].subscribe(1, lambda values: received.append(float(values[0][0])))
+    return main, proxy, received
+
+
+def test_flow_tells_when_graphs_are_added_and_removed():
+    flow = BaseNodeFlow()
+    seen: list[tuple[str, bool, bool]] = []
+    graph = make_target_graph("target")
+    node = graph.nodes["Double_1"]
+    flow.subscribe_graphs_changed(1, lambda name, added: seen.append((name, added is not None, node.is_active)))
+    node._do_activate()
+
+    flow.add_graph(graph)
+    flow.remove_graph("target")
+    flow.unsubscribe_graphs_changed(1)
+    flow.add_graph(make_target_graph("target"))
+
+    # The removal is told while the graph's nodes are still active
+    assert seen == [("target", True, True), ("target", False, True)]
+
+
+def test_proxy_keeps_its_wiring_while_the_target_is_away():
+    flow = BaseNodeFlow()
+    flow.add_graph(make_target_graph("target"))
+    main, proxy, received = _main_with_proxy(flow)
+    main.inputs["in"].dispatch([np.array([1.0])])
+    assert received == [4.0]  # doubled by the target, then by main
+
+    old = flow.remove_graph("target")
+    assert _proxied_inputs(proxy) == {"in"} and set(proxy.outputs) == {"out"}
+    assert all(edge.valid for edge in main._edges.values()) and len(main._edges) == 3
+    main.inputs["in"].dispatch([np.array([5.0])])  # dropped: nobody is there
+    old.inputs["in"].dispatch([np.array([5.0])])  # the removed graph no longer reaches the proxy
+    assert received == [4.0]
+
+    flow.add_graph(make_target_graph("target"))  # another graph object under the same name
+    main.inputs["in"].dispatch([np.array([2.0])])
+    assert received == [4.0, 8.0]
+
+
+def test_proxy_drops_only_the_ports_a_new_target_does_not_have():
+    flow = BaseNodeFlow()
+    flow.add_graph(make_target_graph("target"))
+    main, proxy, received = _main_with_proxy(flow)
+
+    flow.remove_graph("target")
+    flow.add_graph(_ported_graph("target", ["in", "extra"], ["other"]))
+
+    assert _proxied_inputs(proxy) == {"in", "extra"} and set(proxy.outputs) == {"other"}
+    edges = main._edges
+    assert (".in", "proxy_1.in") in edges and ("proxy_1.out", "Double_1.value") not in edges
+
+
+def test_proxy_binds_a_target_that_is_added_after_it_and_makes_the_waiting_edges():
+    flow = BaseNodeFlow()
+    main, proxy, received = _main_with_proxy(flow)  # no target yet: the proxy has no ports
+    assert _proxied_inputs(proxy) == set()
+    assert [edge.valid for edge in main._edges.values()].count(False) == 2
+
+    flow.add_graph(make_target_graph("target"))
+
+    assert all(edge.valid for edge in main._edges.values())
+    main.inputs["in"].dispatch([np.array([3.0])])
+    assert received == [12.0]
+
+
+def test_a_finalized_proxy_no_longer_hears_the_flow():
+    flow = BaseNodeFlow()
+    main, proxy, _ = _main_with_proxy(flow)
+    flow.remove_graph("main")  # finalizes the proxy
+
+    flow.add_graph(make_target_graph("target"))
+
+    assert _proxied_inputs(proxy) == set()
